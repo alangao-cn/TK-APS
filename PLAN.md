@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v8 · 2026-09-27
+> 版本 v9 · 2026-09-27
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v9：**第三步（视频生成）落地**：`app/video/`（vertex + native 双客户端、提交/轮询/下载/存档），产出 `data/videos/{商品ID}/video_v{N}.mp4` + 完整任务档案；模型名实测定为 `bytedance/doubao-seedance-2.0`；发现并解决"参考图含真人被审核拦截"问题（自动换图重试）；单商品端到端验证通过（脚本→视频 263 秒出片）
 - v8：**第二步（视频脚本生成）落地**：`app/llm/`（prompt 拼接 + ZenMux Responses API + `[Video Prompt]` 提取），产出 `data/scripts/{商品ID}/script_v{N}.json` 与 `script_latest.md`（含模型、prompt 哈希、token 用量，可回溯对比）；**目录按步骤归类**：第一步产出 → `data/selection/<时间戳>/`、第二步 → `data/scripts/`、第三步（预留）→ `data/videos/`；防 token 浪费：`gen-scripts` 默认只处理 confirmed=true 的商品，`--product` 单条测试；单商品实测通过（gpt-5，入 3068 / 出 2512 tokens）
 
 - v7：筛选新增**库存门槛** `min_stock`（默认 ≥1；库存来自详情页补抓，补抓后过滤；库存未知时保留，selected.md 里显示库存供人工把关）；详情补抓加缓存（同一批数据重跑 export 不重复访问详情页）；修复重跑 export 时把 selected.json 当原始数据重复解析的问题
@@ -317,16 +318,31 @@ job = (await http.post(f"{cfg.video.native_base_url}/videos", json=payload, head
 
 注意：文档说明 Seedance 2 的"参考音频"不能和首帧同时使用。我们目前不传参考音频，所以没有影响。
 
-### 4.6 需要在 M0 阶段实测确认的问题
+### 4.6 实测结论（2026-09-27，单商品验证通过）
 
-1. **模型名称**：Vertex 文档中 Seedance 2 有两种写法，表格里是 `volcengine/doubao-seedance-2`，示例里是 `bytedance/doubao-seedance-2.0`。需要去 ZenMux 模型列表确认，两种接口的模型名可能也不同
-2. **时长**：Seedance 最长 10 秒，**Veo 3.1 最长 8 秒（只支持 5 或 8 秒）**。如果换成 Veo，时长要改成 8 秒，Prompt 模板的镜头时间会自动跟着变
-3. **Prompt 里怎么引用参考图**：文档没有说明。Prompt 模板里用变量 `{{product_ref}}` 指代商品，默认写成 "the product shown in the reference image"，实测后再调整
-4. **9:16、720p、口播**：在 A 方式下是否都生效
-5. **结果形式**：返回的是下载链接还是 base64 数据，链接能保存多久（程序两种情况都会处理，并且成功后立即保存到本地）
-6. **价格和耗时**：文档没写价格，从 ZenMux 后台查看实际扣费；耗时文档说一般 30 秒到 3 分钟
+1. **模型名称**：`GET /api/v1/models`（203 个模型）确认可用 **`bytedance/doubao-seedance-2.0`**（另有 seedance-2.5、alibaba/wan3.0-video、bfl/flux-3-video）。文档模型表里的 `volcengine/doubao-seedance-2` 实测返回 `invalid_model`，勿用
+2. **时长/规格**：10 秒、9:16、720p、generateAudio 在 vertex 方式下全部生效
+3. **内容审核（重要）**：参考图里**含真人**会被拦截（`raiMediaFilteredCount`，报 "input image may contain real person"）。服装类商品图几乎全是模特图，已实现**自动换下一张商品图重试**（`max_image_attempts`，默认 3 次）；纯产品图（美妆/工具类）无此问题。选品时也可以偏重图片干净的商品
+4. **结果形式**：实测返回 `bytesBase64Encoded`（base64），代码同时兼容 `gcsUri` 下载链接；成功后立即落盘
+5. **耗时**：提交后约 4.5 分钟出片（文档口径 30 秒–3 分钟）；单条 10 秒 720p 视频 4.46 MB
+6. **价格**：接口不返回费用，从 ZenMux 后台余额核对
+7. **Prompt 引用参考图**：写 "the product shown in the reference image" 可用（`product_ref` 配置）
 
-### 4.7 其他要点
+### 4.7 已实现与用法
+
+```
+uv run cli.py gen-videos                          # 无参数：只列出可生成的商品（费用保护）
+uv run cli.py gen-videos --product <商品ID>        # 单条生成（默认最新成功脚本）
+uv run cli.py gen-videos --product <ID> --script-version 2   # 指定脚本版本
+uv run cli.py gen-videos --product <ID> --image 3  # 强制用第 3 张商品图做参考图
+uv run cli.py gen-videos --all                     # 全部商品（慎用，费用高）
+```
+
+- 产出：`data/videos/{商品ID}/video_v{N}.mp4` + `video_v{N}.json`（模型、参数、任务号、每次尝试的图与结果、耗时，全留底）
+- 费用保护：必须显式 `--product` 或 `--all`；单批次上限 `max_videos_per_batch`
+- 两种接口（vertex / native）都已实现，`video.api` 切换；默认 vertex
+
+### 4.8 其他要点
 
 - **并发控制**：同时最多进行 `max_concurrent` 个任务，其余排队
 - **轮询**：每 15 秒查询一次（文档建议值），超过 `timeout_seconds` 标记为超时

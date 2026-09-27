@@ -56,16 +56,17 @@ video:
   api: vertex                    # vertex = Vertex AI 兼容接口（默认）/ native = ZenMux 原生接口
   vertex_base_url: "https://zenmux.ai/api/vertex-ai"
   native_base_url: "https://zenmux.ai/api/v1"
-  # 模型名格式为 "厂商/模型"。两种接口的写法可能不同，M0 阶段到 ZenMux 模型列表确认：
-  #   vertex 方式：volcengine/doubao-seedance-2、google/veo-3.1-generate-001、volcengine/doubao-seedance-1.5-pro
-  #   native 方式：bytedance/doubao-seedance-2.0
-  model: "volcengine/doubao-seedance-2"
+  # 模型名格式为 "厂商/模型"。已从 /api/v1/models 实测确认可用：
+  #   bytedance/doubao-seedance-2.0（默认）、bytedance/doubao-seedance-2.5（更新）、alibaba/wan3.0-video、bfl/flux-3-video
+  #   注意：文档模型表里的 "volcengine/doubao-seedance-2" 实测 invalid_model，勿用
+  model: "bytedance/doubao-seedance-2.0"
   duration: 10                   # 秒。Seedance 最长 10；Veo 3.1 只支持 5 或 8
   shots: 4                       # 镜头数，会传入 Prompt 模板
   ratio: "9:16"
   resolution: "720p"
   generate_audio: true           # 带口播
   image_role: reference_image    # 商品图用法：reference_image（参考图）/ first_frame（首帧）/ none（不传图）
+  max_image_attempts: 3          # 参考图被审核拦截（如服装图含真人）时，最多自动换几张图重试
   product_ref: "the product shown in the reference image"   # Prompt 中指代商品的写法，实测后调整
   negative_prompt: null          # 可选，例如 "text overlay, watermark, extra fingers"（仅 vertex 方式）
   seed: -1                       # -1 = 随机

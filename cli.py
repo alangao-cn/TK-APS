@@ -53,6 +53,12 @@ def main() -> None:
                     help="指定 selected.json 路径（默认 data/selection/selected_latest.json）")
     gs.add_argument("--all", action="store_true", help="处理全部商品（忽略确认门槛，慎用）")
 
+    gv = sub.add_parser("gen-videos", help="第三步：用脚本生成视频（按条收费，必须明确指定商品）")
+    gv.add_argument("--product", type=str, default=None, help="只为指定商品ID生成（测试推荐）")
+    gv.add_argument("--script-version", type=int, default=None, help="用哪一版脚本（默认最新成功版）")
+    gv.add_argument("--image", type=int, default=None, help="强制用第 N 张商品图做参考图（从 0 开始）")
+    gv.add_argument("--all", action="store_true", help="处理所有已有脚本的商品（慎用，费用高）")
+
     export_p = sub.add_parser("export", help="离线解析筛选导出（改了 parser/config 后用，不用重爬）")
     export_p.add_argument("--raw-dir", type=str, default=None)
     export_p.add_argument("--no-images", action="store_true")
@@ -89,6 +95,20 @@ def main() -> None:
         print(f"[脚本] 本次将处理 {len(products)} 个商品（模型 {cfg.llm.model}）")
         saved = asyncio.run(llm_service.generate_for_products(cfg, products))
         print(f"[脚本] 完成，生成 {len(saved)} 份脚本 → data/scripts/<商品ID>/")
+    elif args.cmd == "gen-videos":
+        from app.video import service as video_service
+
+        if not args.product and not args.all:
+            scripts = video_service.available_scripts(cfg)
+            print("视频生成按条收费，请明确指定：")
+            for s in scripts:
+                print(f"  --product {s['product_id']}   (脚本 v{s['version']}, {s['created_at']})")
+            raise SystemExit("或 --all 处理全部（慎用）")
+        products = ([args.product] if args.product
+                    else [s["product_id"] for s in video_service.available_scripts(cfg)])
+        saved = asyncio.run(video_service.generate_for_products(cfg, products, args.script_version,
+                                                                args.image))
+        print(f"[视频] 完成，成功 {len(saved)}/{len(products)} → data/videos/<商品ID>/")
 
 
 if __name__ == "__main__":
