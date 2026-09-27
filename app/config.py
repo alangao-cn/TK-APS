@@ -33,6 +33,8 @@ class Config:
         raw = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
         self.selection = _ns(raw["selection"])
         self.storage = _ns(raw["storage"])
+        self.llm = _ns(raw["llm"])
+        self.video = _ns(raw["video"])
         self.root = ROOT
 
 

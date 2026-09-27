@@ -1,10 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v7 · 2026-09-27
+> 版本 v8 · 2026-09-27
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
+
+- v8：**第二步（视频脚本生成）落地**：`app/llm/`（prompt 拼接 + ZenMux Responses API + `[Video Prompt]` 提取），产出 `data/scripts/{商品ID}/script_v{N}.json` 与 `script_latest.md`（含模型、prompt 哈希、token 用量，可回溯对比）；**目录按步骤归类**：第一步产出 → `data/selection/<时间戳>/`、第二步 → `data/scripts/`、第三步（预留）→ `data/videos/`；防 token 浪费：`gen-scripts` 默认只处理 confirmed=true 的商品，`--product` 单条测试；单商品实测通过（gpt-5，入 3068 / 出 2512 tokens）
 
 - v7：筛选新增**库存门槛** `min_stock`（默认 ≥1；库存来自详情页补抓，补抓后过滤；库存未知时保留，selected.md 里显示库存供人工把关）；详情补抓加缓存（同一批数据重跑 export 不重复访问详情页）；修复重跑 export 时把 selected.json 当原始数据重复解析的问题
 - v6：给 GPT 的数据升级为**多张商品图**——筛选后自动逐个补抓商品详情页（`/api/goods/v3/base` 的 `cover_list`，实测每件 3–10 张），附带评分/库存/评论数；详情接口同样没有商品描述字段，描述继续用标题（TikTok 标题即长描述）
@@ -121,13 +123,13 @@ uv run python scripts/diag_request.py     # 诊断：抓真实请求头/分页�
 
 ### 2.6 交付物与人工确认门槛
 
-每次采集的产出都在 `data/raw/<时间戳>/`：
+每次采集：接口原始数据在 `data/raw/<时间戳>/`，第一步产出在 `data/selection/<时间戳>/`：
 
 | 文件 | 用途 |
 |---|---|
 | `products_all.csv` | 全部商品（每条含单件利润），人工核对选品要求用 |
 | `products_selected.csv` | 通过筛选的商品，同上 |
-| `selected.json` | **第二步（GPT）的程序输入**：标题、**全部商品图**（`image_urls` + 本地路径 `images_local`，来自详情页 cover_list，每件 3–10 张）、价格/佣金/利润、评分/库存/评论数，每条自带拼好的 `product_brief`；`data/selected_latest.json` 是最新一次的稳定副本 |
+| `selected.json` | **第二步（GPT）的程序输入**：标题、**全部商品图**（`image_urls` + 本地路径 `images_local`，来自详情页 cover_list，每件 3–10 张）、价格/佣金/利润、评分/库存/评论数，每条自带拼好的 `product_brief`；`data/selection/selected_latest.json` 是最新一次的稳定副本 |
 | `selected.md` | 人工确认看板：**多张主图** + 关键数字 + FastMoss/TikTok 链接 |
 | `detail_{商品ID}.json` | 补抓的详情页接口原始数据（`/api/goods/v3/base`） |
 | `*_p*.json`、`radio_values.json` | 榜单接口原始数据（改筛选规则不用重爬） |
@@ -201,9 +203,19 @@ Reference image: attached (the product photo)
 3. **商品指代方式做成配置项**：视频 Prompt 中用 `{{product_ref}}` 指代商品，默认值为 "the product shown in the reference image"。ZenMux 文档没有说明 Prompt 里如何引用参考图，M0 阶段实测后再确定写法（见 4.6）
 4. **时长和镜头数用变量表示**：`{seconds}` 等从 `config.yaml` 中读取，改视频时长时 Prompt 会自动跟着变
 
-### 3.3 版本管理
+### 3.3 已实现与用法（2026-09-27 实测）
 
-数据库里会记录每条脚本使用的模型和 Prompt 文件版本（文件内容的哈希值），以后可以按效果对比不同版本。
+```
+uv run cli.py gen-scripts                          # 只处理 selected.json 里 confirmed=true 的商品
+uv run cli.py gen-scripts --product <商品ID>        # 单条测试（忽略确认门槛）
+uv run cli.py gen-scripts --all                     # 全部商品（慎用，耗 token）
+uv run cli.py gen-scripts --from <selected.json路径> # 指定某次选品结果
+```
+
+- 产出：`data/scripts/{商品ID}/script_v{N}.json`（模型、prompt 哈希、原始输出、token 用量、Hook 记录，可回溯对比版本）+ `script_latest.md`（可读版，代码框里直接复制提示词）
+- 防重复：自动把最近 N 条（`avoid_recent_hooks`，默认 20）已用 Hook 拼进系统指令
+- 实测（gpt-5，传 1 张主图）：入 3068 / 出 2512 tokens；产出 4 镜头 10 秒巴西葡语口播提示词，正确抓住商品侧口袋卖点（"Short Com Bolso"），防穿帮/试穿规则齐全
+- 待观察：模型输出有时超过模板要求的 1800 字符（实测 2414），如影响视频效果再收紧；`max_images` 目前 1 张，多图更准但更耗 token
 
 ---
 
@@ -409,7 +421,13 @@ TK_APS/
 ├── cli.py                   # 命令行：scrape / gen-scripts / gen-videos / run / serve
 ├── pyproject.toml           # uv 管理依赖，固定 Python 3.12
 ├── deploy/                  # Windows：环境安装、任务计划自启脚本（以后迁 Linux 再补 Docker / noVNC）
-├── data/                    # raw/ images/ videos/ db.sqlite
+├── data/
+│   ├── raw/<时间戳>/        # 第一步：接口原始数据（榜单 + 详情缓存）
+│   ├── selection/<时间戳>/  # 第一步产出：products_*.csv、selected.json / selected.md
+│   │                        #   （最新副本固定在 data/selection/selected_latest.*）
+│   ├── scripts/<商品ID>/    # 第二步产出：script_v{N}.json + script_latest.md
+│   ├── videos/<商品ID>/     # 第三步产出：视频文件（待做）
+│   └── images/              # 商品图 {商品ID}_{n}.webp
 └── browser_profile/         # FastMoss 登录状态
 ```
 

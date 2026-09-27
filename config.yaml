@@ -43,6 +43,7 @@ llm:
   reasoning_effort: medium       # 推理模型可用：minimal / low / medium / high；不支持的模型设为 null
   max_output_tokens: 4000
   send_image: true               # 是否把商品主图传给模型；模型不支持图片时改为 false
+  max_images: 1                  # 每个商品最多传几张图（多图更准但更耗 token，测试期用 1）
   timeout_seconds: 180
   max_retries: 2
   prompts:

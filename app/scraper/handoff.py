@@ -53,7 +53,7 @@ def _entry(p: dict, cfg) -> dict:
     }
 
 
-def write_handoff(kept: list[dict], cfg, raw_dir: Path) -> tuple[Path, Path]:
+def write_handoff(kept: list[dict], cfg, raw_dir: Path, sel_dir: Path) -> tuple[Path, Path]:
     entries = [_entry(p, cfg) for p in kept]
     payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -68,7 +68,7 @@ def write_handoff(kept: list[dict], cfg, raw_dir: Path) -> tuple[Path, Path]:
         "confirmed": False,  # 人工确认后才置 true，第二步只读 confirmed=true 的数据
         "products": entries,
     }
-    json_path = raw_dir / "selected.json"
+    json_path = sel_dir / "selected.json"
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     lines = [
@@ -80,7 +80,7 @@ def write_handoff(kept: list[dict], cfg, raw_dir: Path) -> tuple[Path, Path]:
         "",
     ]
     for i, e in enumerate(entries, 1):
-        rel_imgs = [os.path.relpath(img, raw_dir)
+        rel_imgs = [os.path.relpath(img, sel_dir)
                     for img in (e.get("images_local") or [])]
         price = f"R$ {e['price_min']}"
         if e["price_max"] and e["price_max"] != e["price_min"]:
@@ -99,13 +99,12 @@ def write_handoff(kept: list[dict], cfg, raw_dir: Path) -> tuple[Path, Path]:
             f"- [FastMoss 详情]({e['fastmoss_url']}) ｜ [TikTok 商品页]({e['tiktok_url']})",
             "",
         ]
-    md_path = raw_dir / "selected.md"
+    md_path = sel_dir / "selected.md"
     md_path.write_text("\n".join(lines), encoding="utf-8")
 
-    # 稳定路径副本，第二步以后固定从这里读最新一次
-    data_dir = cfg.root / cfg.storage.data_dir
-    (data_dir / "selected_latest.json").write_text(
+    # 稳定路径副本（data/selection/ 下），第二步以后固定从这里读最新一次
+    (sel_dir.parent / "selected_latest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    (data_dir / "selected_latest.md").write_text("\n".join(lines), encoding="utf-8")
+    (sel_dir.parent / "selected_latest.md").write_text("\n".join(lines), encoding="utf-8")
     return json_path, md_path

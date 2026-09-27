@@ -47,6 +47,12 @@ def main() -> None:
     scrape_p.add_argument("--pages", type=int, default=None, help="每个类目翻几页（默认读配置 max_pages）")
     scrape_p.add_argument("--categories", type=str, default=None, help="只跑部分类目，逗号分隔")
     scrape_p.add_argument("--api", action="store_true", help="试 API 直取模式（有 fm-sig 签名头，大概率不可用）")
+    gs = sub.add_parser("gen-scripts", help="第二步：为选品商品生成视频脚本（调 ZenMux，注意 token 消耗）")
+    gs.add_argument("--product", type=str, default=None, help="只为指定商品ID生成（测试用，忽略确认门槛）")
+    gs.add_argument("--from", dest="from_path", type=str, default=None,
+                    help="指定 selected.json 路径（默认 data/selection/selected_latest.json）")
+    gs.add_argument("--all", action="store_true", help="处理全部商品（忽略确认门槛，慎用）")
+
     export_p = sub.add_parser("export", help="离线解析筛选导出（改了 parser/config 后用，不用重爬）")
     export_p.add_argument("--raw-dir", type=str, default=None)
     export_p.add_argument("--no-images", action="store_true")
@@ -70,6 +76,19 @@ def main() -> None:
         raw_dir = Path(args.raw_dir) if args.raw_dir else None
         export.export(cfg, raw_dir=raw_dir, download_images=not args.no_images,
                       enrich=args.enrich)
+    elif args.cmd == "gen-scripts":
+        from app.llm import service as llm_service
+
+        selection = llm_service.load_selection(cfg, args.from_path)
+        products = llm_service.pick_products(selection, args.product, args.all)
+        if not products:
+            raise SystemExit(
+                "没有待处理的商品：默认只处理 selected.json 里 confirmed=true 的商品。"
+                "确认选品后把 confirmed 改为 true，或用 --product <商品ID> 测试单条。"
+            )
+        print(f"[脚本] 本次将处理 {len(products)} 个商品（模型 {cfg.llm.model}）")
+        saved = asyncio.run(llm_service.generate_for_products(cfg, products))
+        print(f"[脚本] 完成，生成 {len(saved)} 份脚本 → data/scripts/<商品ID>/")
 
 
 if __name__ == "__main__":

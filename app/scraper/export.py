@@ -92,10 +92,14 @@ def export(cfg, raw_dir: Path | None = None, download_images: bool = True,
         print(f"[解析] 以下字段没映射到（详见 parse_report.json，需补 CANDIDATES）: "
               f"{list(report['unmapped'])}")
 
+    # 第一步产出统一放 data/selection/<时间戳>/，raw 目录只留接口原始数据
+    sel_dir = cfg.root / cfg.storage.data_dir / "selection" / raw_dir.name
+    sel_dir.mkdir(parents=True, exist_ok=True)
+
     filters.annotate_profit(parsed, cfg)
     all_rows = filters.to_rows(parsed, cfg)
-    filters.write_csv(raw_dir / "products_all.csv", all_rows)
-    print(f"[导出] 全部商品 {len(all_rows)} 条 → {raw_dir / 'products_all.csv'}")
+    filters.write_csv(sel_dir / "products_all.csv", all_rows)
+    print(f"[导出] 全部商品 {len(all_rows)} 条 → {sel_dir / 'products_all.csv'}")
 
     kept = filters.apply_filters(parsed, cfg)
     if enrich and kept:
@@ -104,13 +108,13 @@ def export(cfg, raw_dir: Path | None = None, download_images: bool = True,
         print(f"[详情] 补抓完成 {ok}/{len(kept)}")
     kept = filters.apply_stock_filter(kept, cfg)
     rows = filters.to_rows(kept, cfg)
-    filters.write_csv(raw_dir / "products_selected.csv", rows)
-    print(f"[导出] 通过筛选 {len(rows)} 条 → {raw_dir / 'products_selected.csv'}")
+    filters.write_csv(sel_dir / "products_selected.csv", rows)
+    print(f"[导出] 通过筛选 {len(rows)} 条 → {sel_dir / 'products_selected.csv'}")
     filters.print_summary(rows)
 
     if download_images and kept:
         _download_images(kept, cfg)
-    json_path, md_path = handoff.write_handoff(kept, cfg, raw_dir)
+    json_path, md_path = handoff.write_handoff(kept, cfg, raw_dir, sel_dir)
     if kept:
         print(f"[交付] selected.json（{len(kept)} 条，给下一步 GPT 用）→ {json_path}")
         print(f"[交付] selected.md（人工确认用）→ {md_path}")
