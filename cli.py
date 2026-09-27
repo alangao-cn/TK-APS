@@ -47,9 +47,10 @@ def main() -> None:
     scrape_p.add_argument("--pages", type=int, default=None, help="每个类目翻几页（默认读配置 max_pages）")
     scrape_p.add_argument("--categories", type=str, default=None, help="只跑部分类目，逗号分隔")
     scrape_p.add_argument("--api", action="store_true", help="试 API 直取模式（有 fm-sig 签名头，大概率不可用）")
-    export_p = sub.add_parser("export", help="离线解析筛选导出")
+    export_p = sub.add_parser("export", help="离线解析筛选导出（改了 parser/config 后用，不用重爬）")
     export_p.add_argument("--raw-dir", type=str, default=None)
     export_p.add_argument("--no-images", action="store_true")
+    export_p.add_argument("--enrich", action="store_true", help="补抓入选商品的详情页多图（需要打开浏览器）")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -64,10 +65,11 @@ def main() -> None:
             raw_dir = asyncio.run(collect.collect_api(cfg))
         else:
             raw_dir = asyncio.run(collect.collect(cfg, max_pages=args.pages))
-        export.export(cfg, raw_dir=raw_dir)
+        export.export(cfg, raw_dir=raw_dir, enrich=True)
     elif args.cmd == "export":
         raw_dir = Path(args.raw_dir) if args.raw_dir else None
-        export.export(cfg, raw_dir=raw_dir, download_images=not args.no_images)
+        export.export(cfg, raw_dir=raw_dir, download_images=not args.no_images,
+                      enrich=args.enrich)
 
 
 if __name__ == "__main__":

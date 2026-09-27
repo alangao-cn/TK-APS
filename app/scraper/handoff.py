@@ -24,10 +24,11 @@ def _entry(p: dict, cfg) -> dict:
         f"Target market: Brazil (TikTok Shop BR)\n"
         f"Reference image: attached (the product photo)"
     )
+    image_urls = p.get("image_urls") or ([p["image"]] if p.get("image") else [])
     return {
         "product_id": pid,
         "title": p.get("title") or "",
-        "description": "",  # 榜单接口无描述字段；标题即卖点描述，需要时再从详情页补
+        "description": p.get("description") or "",  # FastMoss 榜单/详情接口均无描述字段，标题即卖点描述
         "category": p.get("category") or "",
         "currency": p.get("currency") or "BRL",
         "price_min": p.get("price_min"),
@@ -39,8 +40,13 @@ def _entry(p: dict, cfg) -> dict:
         "revenue_week": p.get("revenue"),
         "profit_cny": p.get("profit_cny"),
         "shop": p.get("shop") or "",
-        "image_url": p.get("image") or "",
-        "image_local": p.get("image_local"),
+        "rating": p.get("rating"),
+        "stock": p.get("stock"),
+        "review_count": p.get("review_count"),
+        "category_rank": p.get("category_rank"),
+        "image_url": image_urls[0] if image_urls else "",
+        "image_urls": image_urls,           # 全部商品图（详情页 cover_list）
+        "images_local": p.get("images_local") or [],  # 本地文件路径，给 GPT 传图用
         "fastmoss_url": cfg.selection.detail_url_template.format(product_id=pid),
         "tiktok_url": p.get("detail_url") or "",
         "product_brief": brief,
@@ -74,20 +80,21 @@ def write_handoff(kept: list[dict], cfg, raw_dir: Path) -> tuple[Path, Path]:
         "",
     ]
     for i, e in enumerate(entries, 1):
-        rel_img = ""
-        if e["image_local"]:
-            rel_img = os.path.relpath(e["image_local"], raw_dir)
+        rel_imgs = [os.path.relpath(img, raw_dir)
+                    for img in (e.get("images_local") or [])]
         price = f"R$ {e['price_min']}"
         if e["price_max"] and e["price_max"] != e["price_min"]:
             price += f" - {e['price_max']}"
+        img_lines = [f"![主图{i + 1}]({rel})" for i, rel in enumerate(rel_imgs)]
         lines += [
             f"## {i}. {e['title']}",
             "",
-            f"![主图]({rel_img})" if rel_img else "（无图）",
+            " ".join(img_lines) if img_lines else "（无图）",
             "",
             f"- 商品ID：`{e['product_id']}` ｜ 类目：{e['category']} ｜ 店铺：{e['shop']}",
             f"- 价格：{price} ｜ 佣金：{e['commission_rate']} ｜ 单件利润：¥{e['profit_cny']}",
-            f"- 关联达人：{e['creators']}（总 {e['creators_total']}） ｜ 周销量：{e['sales_week']}",
+            f"- 关联达人：{e['creators']}（总 {e['creators_total']}） ｜ 周销量：{e['sales_week']}"
+            + (f" ｜ 类目排名：{e['category_rank']}" if e.get("category_rank") else ""),
             f"- [FastMoss 详情]({e['fastmoss_url']}) ｜ [TikTok 商品页]({e['tiktok_url']})",
             "",
         ]

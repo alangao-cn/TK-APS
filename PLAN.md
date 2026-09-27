@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v4 · 2026-09-27
+> 版本 v6 · 2026-09-27
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v6：给 GPT 的数据升级为**多张商品图**——筛选后自动逐个补抓商品详情页（`/api/goods/v3/base` 的 `cover_list`，实测每件 3–10 张），附带评分/库存/评论数；详情接口同样没有商品描述字段，描述继续用标题（TikTok 标题即长描述）
 - v5：模块一收尾——新增交付物 `selected.json`（第二步 GPT 的程序输入，自带 product_brief）与 `selected.md`（人工确认看板），`confirmed` 字段做人工确认门槛；新增 FastMoss 账号密码**自动登录**（失败自动转人工）；初始化 git；本期范围只做第一步选品
 - v4：选品平台从 EchoTik 换成 **FastMoss**——官方 API 费用高，不走官方 API，用浏览器爬虫代替界面手动操作，架构不变；部署确定先上 Windows，部署方式从 Docker + noVNC 改为直接安装 + 远程桌面；URL、类目、实测清单按 FastMoss 更新
 - v3：视频生成平台从 RelayDance 改为 **ZenMux**，同时支持 Vertex AI 兼容接口（默认）和原生接口，用配置切换；脚本和视频共用一个 ZenMux Key；商品图改用 base64 直接传，不再需要上传步骤；运行环境补充 Windows 方案；本地 Mac 即可开发测试
@@ -123,13 +124,16 @@ uv run python scripts/diag_request.py     # 诊断：抓真实请求头/分页�
 
 | 文件 | 用途 |
 |---|---|
-| `products_all.csv` | 全部商品（每条含单件利润），浏览核对用 |
+| `products_all.csv` | 全部商品（每条含单件利润），人工核对选品要求用 |
 | `products_selected.csv` | 通过筛选的商品，同上 |
-| `selected.json` | **第二步（GPT 生成视频脚本）的程序输入**：标题、图片本地路径、价格/佣金/利润等，每条自带拼好的 `product_brief`；`data/selected_latest.json` 是最新一次的稳定副本 |
-| `selected.md` | 人工确认看板：主图 + 关键数字 + FastMoss/TikTok 链接 |
-| `*_p*.json`、`radio_values.json` | 接口原始数据（改筛选规则不用重爬） |
+| `selected.json` | **第二步（GPT）的程序输入**：标题、**全部商品图**（`image_urls` + 本地路径 `images_local`，来自详情页 cover_list，每件 3–10 张）、价格/佣金/利润、评分/库存/评论数，每条自带拼好的 `product_brief`；`data/selected_latest.json` 是最新一次的稳定副本 |
+| `selected.md` | 人工确认看板：**多张主图** + 关键数字 + FastMoss/TikTok 链接 |
+| `detail_{商品ID}.json` | 补抓的详情页接口原始数据（`/api/goods/v3/base`） |
+| `*_p*.json`、`radio_values.json` | 榜单接口原始数据（改筛选规则不用重爬） |
 
-**流程门槛**：`selected.json` 的 `confirmed` 默认 false；人工确认后才置 true，第二步只消费 confirmed=true 的数据（现阶段手动改，M2 网页阶段做成勾选）。榜单接口没有商品描述字段，`description` 暂为空——TikTok 商品标题本身即长描述，已并入 `product_brief`；若 GPT 效果不够再从详情页补抓。
+**流程门槛**：`selected.json` 的 `confirmed` 默认 false；人工确认后才置 true，第二步只消费 confirmed=true 的数据（现阶段手动改，M2 网页阶段做成勾选）。
+
+**详情补抓**：`scrape` 在筛选后自动进行（每个入选商品打开一次详情页，约 4 秒/件）；单独补跑用 `uv run cli.py export --enrich`。FastMoss 榜单和详情接口都**没有商品描述字段**——TikTok 商品标题本身即长描述，已并入 `product_brief`；若 GPT 效果需要真实描述，再考虑抓 TikTok 商品页（另立任务）。
 
 ---
 

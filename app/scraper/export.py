@@ -1,11 +1,16 @@
-"""离线导出：读取 raw 目录 → 解析 → 筛选 → CSV + 下载主图。可反复重跑，不需要重新爬。"""
+"""离线导出：读取 raw 目录 → 解析 → 筛选 → CSV + 下载主图。
+可选 enrich：打开浏览器逐个补抓详情页（多张商品图等）。
+可反复重跑，不需要重新爬。"""
 
+import asyncio
 import json
+import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
-from . import filters, handoff, parser
+from . import detail, filters, handoff, parser
 
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -23,33 +28,39 @@ def _latest_raw_dir(cfg) -> Path:
 
 
 def _download_images(products: list[dict], cfg) -> None:
+    """下载每个商品的全部图片（详情页补抓的多图，没补抓过就用榜单主图）。"""
     img_dir = cfg.root / cfg.storage.data_dir / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
     ok = fail = 0
     with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
         for p in products:
             pid = str(p.get("product_id") or "")
-            url = p.get("image")
-            if not pid or not url:
-                continue
-            suffix = ".jpg"
-            path = img_dir / f"{pid}{suffix}"
-            if path.exists():
-                p["image_local"] = str(path)
-                continue
-            try:
-                resp = client.get(url if str(url).startswith("http") else f"https:{url}")
-                resp.raise_for_status()
-                path.write_bytes(resp.content)
-                p["image_local"] = str(path)
-                ok += 1
-            except Exception as e:
-                print(f"    [warn] 图片下载失败 {pid}: {e}")
-                fail += 1
+            urls = p.get("image_urls") or ([p["image"]] if p.get("image") else [])
+            local_list = []
+            for idx, url in enumerate(urls):
+                if not url:
+                    continue
+                suffix = os.path.splitext(urlparse(url).path)[1] or ".jpg"
+                path = img_dir / f"{pid}_{idx}{suffix}"
+                if not path.exists():
+                    try:
+                        resp = client.get(url if str(url).startswith("http") else f"https:{url}")
+                        resp.raise_for_status()
+                        path.write_bytes(resp.content)
+                        ok += 1
+                    except Exception as e:
+                        print(f"    [warn] 图片下载失败 {pid}_{idx}: {e}")
+                        fail += 1
+                        continue
+                local_list.append(str(path))
+            p["images_local"] = local_list
+            if local_list:
+                p["image_local"] = local_list[0]
     print(f"[图片] 下载成功 {ok}，失败 {fail}，目录 {img_dir}")
 
 
-def export(cfg, raw_dir: Path | None = None, download_images: bool = True) -> Path:
+def export(cfg, raw_dir: Path | None = None, download_images: bool = True,
+           enrich: bool = False) -> Path:
     raw_dir = raw_dir or _latest_raw_dir(cfg)
     all_items: list[dict] = []
     seen: set = set()
@@ -86,6 +97,10 @@ def export(cfg, raw_dir: Path | None = None, download_images: bool = True) -> Pa
     print(f"[导出] 全部商品 {len(all_rows)} 条 → {raw_dir / 'products_all.csv'}")
 
     kept = filters.apply_filters(parsed, cfg)
+    if enrich and kept:
+        print(f"[详情] 开始补抓 {len(kept)} 个入选商品的详情页（多图等）…")
+        ok = asyncio.run(detail.enrich(kept, cfg, raw_dir))
+        print(f"[详情] 补抓完成 {ok}/{len(kept)}")
     rows = filters.to_rows(kept, cfg)
     filters.write_csv(raw_dir / "products_selected.csv", rows)
     print(f"[导出] 通过筛选 {len(rows)} 条 → {raw_dir / 'products_selected.csv'}")
