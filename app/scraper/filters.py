@@ -58,6 +58,28 @@ def apply_filters(products: list[dict], cfg) -> list[dict]:
     return kept
 
 
+def apply_stock_filter(products: list[dict], cfg) -> list[dict]:
+    """库存门槛：库存来自详情页补抓，所以在补抓之后跑。
+    补抓失败（库存未知 None）的保留，人工确认时把关（selected.md 里会显示库存）。"""
+    min_stock = getattr(cfg.selection, "min_stock", 0)
+    if not min_stock:
+        return products
+    kept, dropped, unknown = [], 0, 0
+    for p in products:
+        stock = p.get("stock")
+        if stock is None:
+            unknown += 1
+            kept.append(p)
+        elif stock >= min_stock:
+            kept.append(p)
+        else:
+            dropped += 1
+            p["_filter_reason"] = f"库存 {stock} < {min_stock}"
+    print(f"[筛选] 库存 ≥ {min_stock}：保留 {len(kept)}"
+          f"（剔除 {dropped}，库存未知保留 {unknown}）")
+    return kept
+
+
 def to_rows(products: list[dict], cfg) -> list[dict]:
     rows = []
     detail_tpl = cfg.selection.detail_url_template

@@ -94,6 +94,7 @@ def write_handoff(kept: list[dict], cfg, raw_dir: Path) -> tuple[Path, Path]:
             f"- 商品ID：`{e['product_id']}` ｜ 类目：{e['category']} ｜ 店铺：{e['shop']}",
             f"- 价格：{price} ｜ 佣金：{e['commission_rate']} ｜ 单件利润：¥{e['profit_cny']}",
             f"- 关联达人：{e['creators']}（总 {e['creators_total']}） ｜ 周销量：{e['sales_week']}"
+            f" ｜ 库存：{e['stock'] if e['stock'] is not None else '未知'}"
             + (f" ｜ 类目排名：{e['category_rank']}" if e.get("category_rank") else ""),
             f"- [FastMoss 详情]({e['fastmoss_url']}) ｜ [TikTok 商品页]({e['tiktok_url']})",
             "",

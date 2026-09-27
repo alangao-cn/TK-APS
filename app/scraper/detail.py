@@ -19,15 +19,30 @@ async def _capture_base(page, url: str, timeout: float = 25000) -> dict:
     return await asyncio.wait_for(resp.json(), timeout=5)
 
 
+def _to_int(v):
+    """接口里数字经常是字符串（如 stock_count="210151"，断货时是 0）。"""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _extract(product_raw: dict) -> dict:
     """从 base 接口的 data.product 里取补充字段。"""
     return {
         "image_urls": product_raw.get("cover_list") or [],
-        "rating": product_raw.get("product_rating"),
-        "stock": product_raw.get("stock_count"),
-        "review_count": product_raw.get("review_count"),
-        "category_rank": product_raw.get("category_rank"),
-        "country_rank": product_raw.get("country_rank"),
+        "rating": _to_float(product_raw.get("product_rating")),
+        "stock": _to_int(product_raw.get("stock_count")),
+        "review_count": _to_int(product_raw.get("review_count")),
+        "category_rank": _to_int(product_raw.get("category_rank")),
+        "country_rank": _to_int(product_raw.get("country_rank")),
     }
 
 
@@ -52,6 +67,18 @@ async def enrich(products: list[dict], cfg, raw_dir: Path) -> int:
             pid = str(p.get("product_id") or "")
             if not pid:
                 continue
+            cache = raw_dir / f"detail_{pid}.json"
+            if cache.exists():
+                try:
+                    body = json.loads(cache.read_text(encoding="utf-8"))["body"]
+                    product_raw = ((body.get("data") or {}).get("product")) or {}
+                    if body.get("code") == 200 and product_raw:
+                        p.update(_extract(product_raw))
+                        ok += 1
+                        continue  # 同一批数据重跑 export 时直接用缓存，不再开详情页
+                except Exception:
+                    pass  # 缓存坏了就重新抓
+
             url = detail_tpl.format(product_id=pid)
             try:
                 try:

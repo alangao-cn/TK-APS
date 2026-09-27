@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v6 · 2026-09-27
+> 版本 v7 · 2026-09-27
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v7：筛选新增**库存门槛** `min_stock`（默认 ≥1；库存来自详情页补抓，补抓后过滤；库存未知时保留，selected.md 里显示库存供人工把关）；详情补抓加缓存（同一批数据重跑 export 不重复访问详情页）；修复重跑 export 时把 selected.json 当原始数据重复解析的问题
 - v6：给 GPT 的数据升级为**多张商品图**——筛选后自动逐个补抓商品详情页（`/api/goods/v3/base` 的 `cover_list`，实测每件 3–10 张），附带评分/库存/评论数；详情接口同样没有商品描述字段，描述继续用标题（TikTok 标题即长描述）
 - v5：模块一收尾——新增交付物 `selected.json`（第二步 GPT 的程序输入，自带 product_brief）与 `selected.md`（人工确认看板），`confirmed` 字段做人工确认门槛；新增 FastMoss 账号密码**自动登录**（失败自动转人工）；初始化 git；本期范围只做第一步选品
 - v4：选品平台从 EchoTik 换成 **FastMoss**——官方 API 费用高，不走官方 API，用浏览器爬虫代替界面手动操作，架构不变；部署确定先上 Windows，部署方式从 Docker + noVNC 改为直接安装 + 远程桌面；URL、类目、实测清单按 FastMoss 更新
@@ -133,7 +134,7 @@ uv run python scripts/diag_request.py     # 诊断：抓真实请求头/分页�
 
 **流程门槛**：`selected.json` 的 `confirmed` 默认 false；人工确认后才置 true，第二步只消费 confirmed=true 的数据（现阶段手动改，M2 网页阶段做成勾选）。
 
-**详情补抓**：`scrape` 在筛选后自动进行（每个入选商品打开一次详情页，约 4 秒/件）；单独补跑用 `uv run cli.py export --enrich`。FastMoss 榜单和详情接口都**没有商品描述字段**——TikTok 商品标题本身即长描述，已并入 `product_brief`；若 GPT 效果需要真实描述，再考虑抓 TikTok 商品页（另立任务）。
+**详情补抓与库存过滤**：`scrape` 的完整流程是 达人数/利润初筛 → 逐个补抓详情页（约 4 秒/件，结果缓存在 `detail_{商品ID}.json`，重跑 export 直接用缓存）→ **库存 ≥ min_stock 再过滤**。单独补跑用 `uv run cli.py export --enrich`。FastMoss 榜单和详情接口都**没有商品描述字段**——TikTok 商品标题本身即长描述，已并入 `product_brief`；若 GPT 效果需要真实描述，再考虑抓 TikTok 商品页（另立任务）。
 
 ---
 

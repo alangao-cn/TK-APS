@@ -64,10 +64,11 @@ def export(cfg, raw_dir: Path | None = None, download_images: bool = True,
     raw_dir = raw_dir or _latest_raw_dir(cfg)
     all_items: list[dict] = []
     seen: set = set()
+    # 只解析榜单原始数据；selected/products/detail 是本工具自己的产物，不能再喂回来
     files = sorted(
         f for f in raw_dir.glob("*.json")
-        if f.name not in ("radio_values.json", "parse_report.json")
-        and not f.name.startswith("products_")
+        if f.name not in ("radio_values.json", "parse_report.json", "selected.json")
+        and not f.name.startswith(("products_", "detail_"))
     )
     for f in files:
         items = parser.parse_raw_file(f)
@@ -101,6 +102,7 @@ def export(cfg, raw_dir: Path | None = None, download_images: bool = True,
         print(f"[详情] 开始补抓 {len(kept)} 个入选商品的详情页（多图等）…")
         ok = asyncio.run(detail.enrich(kept, cfg, raw_dir))
         print(f"[详情] 补抓完成 {ok}/{len(kept)}")
+    kept = filters.apply_stock_filter(kept, cfg)
     rows = filters.to_rows(kept, cfg)
     filters.write_csv(raw_dir / "products_selected.csv", rows)
     print(f"[导出] 通过筛选 {len(rows)} 条 → {raw_dir / 'products_selected.csv'}")
@@ -108,9 +110,11 @@ def export(cfg, raw_dir: Path | None = None, download_images: bool = True,
 
     if download_images and kept:
         _download_images(kept, cfg)
+    json_path, md_path = handoff.write_handoff(kept, cfg, raw_dir)
     if kept:
-        json_path, md_path = handoff.write_handoff(kept, cfg, raw_dir)
         print(f"[交付] selected.json（{len(kept)} 条，给下一步 GPT 用）→ {json_path}")
         print(f"[交付] selected.md（人工确认用）→ {md_path}")
         print("[交付] 人工确认后把 selected.json 的 confirmed 改为 true，第二步才会使用")
+    else:
+        print(f"[交付] 本次通过筛选 0 条，selected.json 已重置为空 → {json_path}")
     return raw_dir

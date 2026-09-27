@@ -21,6 +21,7 @@ selection:
   creators_min: 30               # 带货达人数下限（含）
   creators_max: 70               # 带货达人数上限（含）
   creators_source: related       # 用哪一列达人 数筛选：related = 关联达人（近期带货）/ total = 总关联达人
+  min_stock: 1                   # 库存下限（详情页数据，补抓后过滤；库存未知时保留，人工确认时看）
   price_basis: min               # 价格是区间时取哪个值：min（保守）/ avg / max
 
   # 汇率：售价币种 → 人民币，手动维护
