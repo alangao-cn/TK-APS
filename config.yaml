@@ -1,0 +1,84 @@
+# ============================================================
+# TK_APS 业务配置
+# 密钥不要写在这里，放到 .env 文件中
+# 修改后在网页「设置」页点「重新加载」或重启服务生效
+# ============================================================
+
+# ---------- 模块一：选品 ----------
+selection:
+  source_url: "https://www.fastmoss.com/zh/e-commerce/hotlist?region={region}"   # 热销榜，{region} 由下面的 region 填充
+  detail_url_template: "https://www.fastmoss.com/zh/e-commerce/detail/{product_id}"   # 商品详情页，商品 ID 即 TikTok 商品 ID
+  period: weekly                 # daily / weekly / monthly（界面上对应日榜 / 周榜 / 月榜）
+  region: BR                     # 地区代码，同时决定使用哪个 prompts/market_{region}.md
+  categories:                    # FastMoss 界面上的类目名称，后期可能调整；M4 实测后补充接口用的类目 ID
+    - "运动与户外"
+    - "居家日用"
+    - "五金工具"
+  max_pages: 5                   # 每个类目最多翻几页（当前标准会员；30-70 达人段在长尾，升级会员后可加大）
+
+  # 筛选条件
+  min_profit_cny: 2.0            # 单件利润下限（人民币）
+  creators_min: 30               # 带货达人数下限（含）
+  creators_max: 70               # 带货达人数上限（含）
+  creators_source: related       # 用哪一列达人 数筛选：related = 关联达人（近期带货）/ total = 总关联达人
+  price_basis: min               # 价格是区间时取哪个值：min（保守）/ avg / max
+
+  # 汇率：售价币种 → 人民币，手动维护
+  fx_to_cny:
+    BRL: 1.30
+    USD: 7.10
+    MXN: 0.39
+
+  # 防风控
+  delay_seconds: [3, 8]          # 每步操作之间的随机等待范围（秒）
+  headless: false                # 保持有头模式，出问题直接远程桌面看浏览器、手动登录 / 处理验证码
+  proxy: null                    # 例如 "http://user:pass@host:port"，被风控时再启用
+
+# ---------- 模块二：视频脚本（LLM） ----------
+llm:
+  base_url: "https://zenmux.ai/api/v1"
+  model: "openai/gpt-5"
+  api: responses                 # responses（ZenMux 示例的写法）/ chat（chat.completions，备用）
+  reasoning_effort: medium       # 推理模型可用：minimal / low / medium / high；不支持的模型设为 null
+  max_output_tokens: 4000
+  send_image: true               # 是否把商品主图传给模型；模型不支持图片时改为 false
+  timeout_seconds: 180
+  max_retries: 2
+  prompts:
+    base: "prompts/director_base.md"
+    market_dir: "prompts"        # 会自动加载 prompts/market_{region}.md
+  avoid_recent_hooks: 20         # 把最近 N 条已用过的开头台词传给模型，避免重复
+
+# ---------- 模块三：视频生成（ZenMux） ----------
+video:
+  api: vertex                    # vertex = Vertex AI 兼容接口（默认）/ native = ZenMux 原生接口
+  vertex_base_url: "https://zenmux.ai/api/vertex-ai"
+  native_base_url: "https://zenmux.ai/api/v1"
+  # 模型名格式为 "厂商/模型"。两种接口的写法可能不同，M0 阶段到 ZenMux 模型列表确认：
+  #   vertex 方式：volcengine/doubao-seedance-2、google/veo-3.1-generate-001、volcengine/doubao-seedance-1.5-pro
+  #   native 方式：bytedance/doubao-seedance-2.0
+  model: "volcengine/doubao-seedance-2"
+  duration: 10                   # 秒。Seedance 最长 10；Veo 3.1 只支持 5 或 8
+  shots: 4                       # 镜头数，会传入 Prompt 模板
+  ratio: "9:16"
+  resolution: "720p"
+  generate_audio: true           # 带口播
+  image_role: reference_image    # 商品图用法：reference_image（参考图）/ first_frame（首帧）/ none（不传图）
+  product_ref: "the product shown in the reference image"   # Prompt 中指代商品的写法，实测后调整
+  negative_prompt: null          # 可选，例如 "text overlay, watermark, extra fingers"（仅 vertex 方式）
+  seed: -1                       # -1 = 随机
+  watermark: false               # 仅 native 方式
+  variants_per_product: 1        # 每个商品生成几个版本
+
+  max_concurrent: 3              # 同时进行的生成任务数
+  poll_interval_seconds: 15      # 文档建议每 15 秒查询一次
+  timeout_seconds: 900           # 单个任务超过这个时间标记为超时
+  max_retries: 1                 # 失败后自动重试次数（被内容审核拦截的不重试）
+  max_videos_per_batch: 30       # 单批次最多生成多少条，防止误操作产生大量费用
+  callback_url: null             # 仅 native 方式；为空时只用轮询
+
+# ---------- 存储 ----------
+storage:
+  data_dir: "data"               # 包含 raw/ images/ videos/ db.sqlite
+  browser_profile_dir: "browser_profile"
+  video_retention_days: 0        # 视频保留天数，0 表示永久保留

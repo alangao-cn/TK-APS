@@ -1,0 +1,101 @@
+"""离线导出：读取 raw 目录 → 解析 → 筛选 → CSV + 下载主图。可反复重跑，不需要重新爬。"""
+
+import json
+from pathlib import Path
+
+import httpx
+
+from . import filters, handoff, parser
+
+HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
+    "Referer": "https://www.fastmoss.com/",
+}
+
+
+def _latest_raw_dir(cfg) -> Path:
+    raw_root = cfg.root / cfg.storage.data_dir / "raw"
+    dirs = sorted(d for d in raw_root.iterdir() if d.is_dir() and (d / "period_week.json").exists())
+    if not dirs:
+        raise FileNotFoundError(f"{raw_root} 下没有采集数据，先跑 `uv run cli.py scrape`")
+    return dirs[-1]
+
+
+def _download_images(products: list[dict], cfg) -> None:
+    img_dir = cfg.root / cfg.storage.data_dir / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    ok = fail = 0
+    with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+        for p in products:
+            pid = str(p.get("product_id") or "")
+            url = p.get("image")
+            if not pid or not url:
+                continue
+            suffix = ".jpg"
+            path = img_dir / f"{pid}{suffix}"
+            if path.exists():
+                p["image_local"] = str(path)
+                continue
+            try:
+                resp = client.get(url if str(url).startswith("http") else f"https:{url}")
+                resp.raise_for_status()
+                path.write_bytes(resp.content)
+                p["image_local"] = str(path)
+                ok += 1
+            except Exception as e:
+                print(f"    [warn] 图片下载失败 {pid}: {e}")
+                fail += 1
+    print(f"[图片] 下载成功 {ok}，失败 {fail}，目录 {img_dir}")
+
+
+def export(cfg, raw_dir: Path | None = None, download_images: bool = True) -> Path:
+    raw_dir = raw_dir or _latest_raw_dir(cfg)
+    all_items: list[dict] = []
+    seen: set = set()
+    files = sorted(
+        f for f in raw_dir.glob("*.json")
+        if f.name not in ("radio_values.json", "parse_report.json")
+        and not f.name.startswith("products_")
+    )
+    for f in files:
+        items = parser.parse_raw_file(f)
+        for it in items:
+            pid = str(it.get("product_id") or it.get("goods_id") or it.get("id") or "")
+            if pid and pid in seen:
+                continue
+            if pid:
+                seen.add(pid)
+            all_items.append(it)
+
+    if not all_items:
+        raise RuntimeError(f"raw 目录里没解析到商品，看下 {raw_dir} 下的 json 结构，改 parser.py 的 CANDIDATES")
+
+    parsed = [parser.parse_item(it) for it in all_items]
+    report = parser.parse_report(parsed, all_items)
+    (raw_dir / "parse_report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if report["unmapped"]:
+        print(f"[解析] 以下字段没映射到（详见 parse_report.json，需补 CANDIDATES）: "
+              f"{list(report['unmapped'])}")
+
+    filters.annotate_profit(parsed, cfg)
+    all_rows = filters.to_rows(parsed, cfg)
+    filters.write_csv(raw_dir / "products_all.csv", all_rows)
+    print(f"[导出] 全部商品 {len(all_rows)} 条 → {raw_dir / 'products_all.csv'}")
+
+    kept = filters.apply_filters(parsed, cfg)
+    rows = filters.to_rows(kept, cfg)
+    filters.write_csv(raw_dir / "products_selected.csv", rows)
+    print(f"[导出] 通过筛选 {len(rows)} 条 → {raw_dir / 'products_selected.csv'}")
+    filters.print_summary(rows)
+
+    if download_images and kept:
+        _download_images(kept, cfg)
+    if kept:
+        json_path, md_path = handoff.write_handoff(kept, cfg, raw_dir)
+        print(f"[交付] selected.json（{len(kept)} 条，给下一步 GPT 用）→ {json_path}")
+        print(f"[交付] selected.md（人工确认用）→ {md_path}")
+        print("[交付] 人工确认后把 selected.json 的 confirmed 改为 true，第二步才会使用")
+    return raw_dir

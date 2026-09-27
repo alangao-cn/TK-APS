@@ -1,0 +1,14 @@
+# 密钥与本地环境
+.env
+
+# 运行时数据（原始采集、图片、导出、登录态）
+data/
+browser_profile/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 系统
+.DS_Store
