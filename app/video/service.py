@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 
+from . import errors as video_errors
 from . import image as video_image
 from . import native_client, vertex_client
 
@@ -100,8 +101,9 @@ async def generate_for_script(cfg, product_id: str, script_version: int | None =
     video_dir = cfg.root / cfg.storage.data_dir / "videos" / product_id
     video_dir.mkdir(parents=True, exist_ok=True)
     version = _next_version(video_dir)
-    use_vertex = cfg.video.api == "vertex"
-    client_mod = vertex_client if use_vertex else native_client
+    # 两条通道（vertex 兼容 / native）各自只支持一部分模型：配置的通道不认模型时自动换另一条
+    client_mod = vertex_client if cfg.video.api == "vertex" else native_client
+    api_name = cfg.video.api
 
     record = {
         "product_id": product_id,
@@ -130,15 +132,29 @@ async def generate_for_script(cfg, product_id: str, script_version: int | None =
                 print(f"[视频] 参考图：{img_path.name}（{len(image_b64) // 1024} KB base64，"
                       f"第 {attempt + 1} 次尝试）")
 
-            print(f"[视频] {product_id} 提交任务（{cfg.video.api} / {cfg.video.model}）…")
-            job_id = await client_mod.submit(cfg, http, prompt, image_b64, image_mime)
-            print(f"[视频] 任务号 {job_id}，每 {cfg.video.poll_interval_seconds}s 轮询一次…")
+            print(f"[视频] {product_id} 提交任务（{api_name} / {cfg.video.model}）…")
+            try:
+                job_id = await client_mod.submit(cfg, http, prompt, image_b64, image_mime)
+            except video_errors.ModelNotSupported as e:
+                other = native_client if client_mod is vertex_client else vertex_client
+                other_name = "native" if other is native_client else "vertex"
+                print(f"[视频] {api_name} 接口不认这个模型（{str(e)[:160]}），"
+                      f"自动切换 {other_name} 接口重试…")
+                client_mod, api_name = other, other_name
+                record["api"] = api_name
+                try:
+                    job_id = await client_mod.submit(cfg, http, prompt, image_b64, image_mime)
+                except video_errors.ModelNotSupported as e2:
+                    raise RuntimeError(
+                        f"模型 {cfg.video.model} 在 vertex 和 native 两条接口都不支持"
+                        f"（{str(e2)[:160]}）。模型名以 GET /api/v1/models 返回为准") from e2
+            print(f"[视频] 任务号 {job_id}（{api_name}），每 {cfg.video.poll_interval_seconds}s 轮询一次…")
 
             poll_started = time.monotonic()
             while True:
                 await asyncio.sleep(int(cfg.video.poll_interval_seconds))
                 elapsed = int(time.monotonic() - poll_started)
-                if use_vertex:
+                if client_mod is vertex_client:
                     operation = await client_mod.poll(cfg, http, job_id)
                     if operation.get("done"):
                         result = client_mod.extract_result(operation)

@@ -5,6 +5,8 @@ import os
 
 import httpx
 
+from . import errors
+
 
 def _headers() -> dict:
     return {
@@ -43,6 +45,9 @@ async def submit(cfg, http: httpx.AsyncClient, prompt: str,
                            json=build_payload(cfg, prompt, image_b64, image_mime),
                            headers=_headers())
     if resp.status_code not in (200, 201):
+        if errors.is_model_not_supported(resp.status_code, resp.text):
+            raise errors.ModelNotSupported(
+                f"native 接口不支持模型 {cfg.video.model}: {resp.text[:200]}")
         raise RuntimeError(f"提交失败 HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
     if not data.get("id"):

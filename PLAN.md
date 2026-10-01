@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v10.2 · 2026-10-01
+> 版本 v10.3 · 2026-10-01
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v10.3：**换模型踩坑修复**——vertex 与 native 两条通道各自只支持一部分模型：实测 `alibaba/wan3.0-video` 被 vertex 通道拒绝（404 model_not_supported，"not supported by Veo API"）。现在提交时识别"模型不支持"错误（`errors.ModelNotSupported`，匹配 404 / model_not_supported / invalid_model 等），**自动切换另一条通道重试**，任务档案记录实际使用的 api；两条都不行才报错，并提示以 `GET /api/v1/models` 为准。wan3.0 走 native 接口（官方 curl 示例确认），$0.05/秒（10 秒约 $0.5）；`bfl/flux-3-video` 预计同样只支持某一条通道，切模型时程序会自动试。已用 MockTransport 做了三场景零成本测试：vertex 拒绝自动切 native 出片、双通道都拒绝时汇总报错、seedance 原路径回归
 - v10.2：修复**任务自拦截 bug**——防重复检查在任务启动后才执行，把任务自己当成了"已在跑的旧任务"，导致生成视频/采集任务一提交就报"已有任务在跑"失败（原商品匹配用标题子串，还会误伤 ID 前缀相同的商品）。改为 Job 带 `key` 精确匹配 + 检查排除自身 + 路由层先拦（不建任务直接提示）。`/api/jobs` 轮询自适应：有任务 3s、空闲 20s、页面后台暂停
 - v10.1：发起采集改为**先弹参数表单再确认**：总览页点「发起选品采集」弹出参数弹窗，预填 config.yaml 当前值（榜单周期/地区/类目勾选/每类目翻页数 + 折叠的筛选参数：利润/达人区间/库存），确认后才启动子进程。参数经 `--params-file`（JSON，留底 `data/logs/`）覆盖子进程的 selection 配置，**只影响本次采集，不写回 config.yaml**（`apply_selection_overrides` 白名单控制）。顺带修正：collect 的榜单周期原来在 UI 模式下写死"周榜"，现已真正参数化（日/周/月榜都可选），export 的"最新批次"识别兼容任意 `period_*.json`
 - v10：**第四步（网页）落地**：FastAPI + Jinja2 服务端渲染，`uv run cli.py serve` 启动。五个页面：总览（发起采集子进程 + 任务进度实时轮询）、选品（**按商品勾选确认**写回 selected.json、逐条/批量生成脚本）、脚本（**在线编辑提示词**、重新生成、提交视频）、视频（在线预览、单个下载、勾选 ZIP 批量下载、失败重试）、设置（config.yaml 在线编辑 + 热重载）。登录用 .env 的 `WEB_USERNAME/WEB_PASSWORD`（HMAC 签名 Cookie，无会话表）。确认门槛细化为按商品勾选：`pick_products` 优先读每条商品的 `confirmed`，旧文件的整批字段仍兼容。长任务（采集/脚本/视频）都是内存任务表 + 页面轮询，采集在**子进程**跑（日志 `data/logs/`），不占用服务事件循环。前端手写轻量 CSS，不引 npm/CDN；任务状态有 JSON 接口（`/api/jobs`），以后要上 React+antd 只需加前端层。M1 的 SQLite 暂缓：文件存储已覆盖版本留底/单条重试，任务量上来再迁
@@ -244,7 +245,7 @@ ZenMux 提供两种调用视频模型的方式：
 
 ### 4.2 结论：两种都实现，默认用 A（Vertex AI 兼容接口）
 
-**默认用 A 的理由**：你还没确定用哪个视频模型。A 方式下，Veo 和 Seedance 用同一套参数，**换模型只需要改配置里的模型名**，不用改代码，方便对比不同模型的效果和价格。
+**默认用 A 的理由**：你还没确定用哪个视频模型。A 方式下，Veo 和 Seedance 用同一套参数，**换模型只需要改配置里的模型名**，不用改代码，方便对比不同模型的效果和价格。两条通道各自只支持一部分模型（如 wan3.0 只在 native），**当前通道不认模型时会自动换另一条重试**（v10.3）。
 
 **同时保留 B 的理由**：B 是 Seedance 的原生格式，参数最完整（比如 `watermark`、`return_last_frame`）。如果 A 方式下某个 Seedance 参数不生效，可以切换到 B。
 

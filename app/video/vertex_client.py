@@ -5,6 +5,8 @@ POST /v1/publishers/{厂商}/models/{模型}:predictLongRunning 提交，
 
 import httpx
 
+from . import errors
+
 
 def _url(cfg, action: str) -> str:
     provider, model = cfg.video.model.split("/", 1)
@@ -53,6 +55,9 @@ async def submit(cfg, http: httpx.AsyncClient, prompt: str,
                            json=build_payload(cfg, prompt, image_b64, image_mime),
                            headers=_headers())
     if resp.status_code != 200:
+        if errors.is_model_not_supported(resp.status_code, resp.text):
+            raise errors.ModelNotSupported(
+                f"vertex 接口不支持模型 {cfg.video.model}: {resp.text[:200]}")
         raise RuntimeError(f"提交失败 HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
     if "name" not in data:
