@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/api/client.ts","./src/components/jobmonitor.tsx","./src/pages/batchdetail.tsx","./src/pages/batches.tsx","./src/pages/login.tsx","./src/pages/productdetail.tsx","./src/pages/settings.tsx","./src/pages/videos.tsx"],"version":"5.9.3"}
