@@ -66,7 +66,7 @@ def main() -> None:
     export_p.add_argument("--no-images", action="store_true")
     export_p.add_argument("--enrich", action="store_true", help="补抓入选商品的详情页多图（需要打开浏览器）")
 
-    serve_p = sub.add_parser("serve", help="启动网页（旧版在 /，新版 SPA 在 /app）")
+    serve_p = sub.add_parser("serve", help="启动网页（React SPA，http://127.0.0.1:8000）")
     serve_p.add_argument("--host", default="127.0.0.1", help="默认本机访问；局域网用 0.0.0.0")
     serve_p.add_argument("--port", type=int, default=8000)
     sub.add_parser("sync-db", help="把 data/ 下的文件产物同步进 SQLite（幂等，可反复跑）")
