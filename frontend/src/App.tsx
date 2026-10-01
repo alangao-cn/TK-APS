@@ -16,8 +16,9 @@ const queryClient = new QueryClient({
 
 function TopMenu() {
   const loc = useLocation()
-  const key = loc.hash.replace('#', '').split('?')[0]
-  const selected = key.startsWith('/batch') ? '/batch' : key.startsWith('/product') ? '/' : key || '/'
+  // HashRouter 下路由信息在 pathname 里；商品/批次详情页归属"批次"菜单
+  const key = loc.pathname.split('?')[0]
+  const selected = key.startsWith('/batch') || key.startsWith('/product') ? '/' : key || '/'
   return (
     <Layout.Header style={{ display: 'flex', alignItems: 'center', padding: '0 24px' }}>
       <Typography.Title level={4} style={{ color: '#fff', margin: '0 24px 0 0' }}>
