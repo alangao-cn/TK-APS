@@ -80,11 +80,12 @@ def _tail(path: Path, n: int) -> list[str]:
         return []
 
 
-async def run_gen_scripts(request, job, product_id: str | None) -> None:
+async def run_gen_scripts(request, job, product_id: str | None,
+                          from_path: str | None = None) -> None:
     from app.llm import service as llm_service
 
     cfg = _cfg(request.app.state)
-    selection = llm_service.load_selection(cfg, None)
+    selection = llm_service.load_selection(cfg, from_path)
     products = llm_service.pick_products(selection, product_id, all_flag=False)
     if not products:
         raise RuntimeError("没有可处理的商品：请先在「选品」页勾选确认（或单个商品重试）")

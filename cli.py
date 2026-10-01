@@ -66,9 +66,10 @@ def main() -> None:
     export_p.add_argument("--no-images", action="store_true")
     export_p.add_argument("--enrich", action="store_true", help="补抓入选商品的详情页多图（需要打开浏览器）")
 
-    serve_p = sub.add_parser("serve", help="启动网页（总览/选品/脚本/视频/设置）")
+    serve_p = sub.add_parser("serve", help="启动网页（旧版在 /，新版 SPA 在 /app）")
     serve_p.add_argument("--host", default="127.0.0.1", help="默认本机访问；局域网用 0.0.0.0")
     serve_p.add_argument("--port", type=int, default=8000)
+    sub.add_parser("sync-db", help="把 data/ 下的文件产物同步进 SQLite（幂等，可反复跑）")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -121,6 +122,12 @@ def main() -> None:
         saved = asyncio.run(video_service.generate_for_products(cfg, products, args.script_version,
                                                                 args.image))
         print(f"[视频] 完成，成功 {len(saved)}/{len(products)} → data/videos/<商品ID>/")
+    elif args.cmd == "sync-db":
+        from app import sync as sync_mod
+        from app.db import make_engine
+
+        stats = sync_mod.sync_all(cfg, make_engine(cfg))
+        print(f"[DB] 同步完成：{stats}（batches/scripts/videos 计数）")
     elif args.cmd == "serve":
         import uvicorn
 

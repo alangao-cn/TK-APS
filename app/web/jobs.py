@@ -6,6 +6,7 @@
 
 import asyncio
 import itertools
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,67 @@ KEEP_JOBS = 100
 _ids = itertools.count(1)
 JOBS: dict[int, "Job"] = {}
 _lock = asyncio.Lock()
+_db_engine = None  # 由 init_db 注入；CLI/测试场景可以为 None（纯内存）
+
+
+def init_db(engine) -> None:
+    """服务启动时调用：接上数据库，历史任务载入内存，中断的任务打标记。"""
+    global _db_engine
+    _db_engine = engine
+    from sqlmodel import Session, select
+
+    from .. import models
+    with Session(engine) as s:
+        for rec in s.exec(select(models.JobRecord).where(
+                models.JobRecord.status == "running")).all():
+            rec.status = "interrupted"
+            rec.error = rec.error or "服务重启，任务中断"
+            rec.finished_at = datetime.now().isoformat(timespec="seconds")
+            s.add(rec)
+        s.commit()
+        for rec in s.exec(select(models.JobRecord).order_by(   # noqa: E712
+                models.JobRecord.id.desc())).all()[:KEEP_JOBS]:
+            job = Job(id=rec.job_ref, type=rec.type, title=rec.title,
+                      status=rec.status, key=rec.key or None,
+                      log=json.loads(rec.log_json or "[]"),
+                      created_at=rec.created_at, finished_at=rec.finished_at,
+                      error=rec.error)
+            JOBS.setdefault(job.id, job)
+
+
+def _persist(job: "Job") -> None:
+    if not _db_engine:
+        return
+    try:
+        from sqlmodel import Session, select
+
+        from .. import models
+        with Session(_db_engine) as s:
+            rec = s.exec(select(models.JobRecord).where(
+                models.JobRecord.job_ref == job.id)).first()
+            if not rec:
+                rec = models.JobRecord(job_ref=job.id)
+            rec.type, rec.title, rec.key = job.type, job.title, job.key or ""
+            rec.status, rec.error = job.status, job.error
+            rec.log_json = json.dumps(job.log[-MAX_LOG_LINES:], ensure_ascii=False)
+            if job.finished_at:
+                rec.finished_at = job.finished_at
+            s.add(rec)
+            s.commit()
+    except Exception:
+        pass  # 任务本身不能因为记录失败而失败
+
+
+def _sync_after_job() -> None:
+    """任务结束后把文件工件同步进 DB（新脚本/视频/批次出现在页面上的入口）。"""
+    if not _db_engine:
+        return
+    try:
+        from .. import sync as sync_mod
+        from ..config import load_config
+        sync_mod.sync_all(load_config(), _db_engine)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -57,6 +119,8 @@ async def _run(job: Job, coro_fn) -> None:
         job.finished_at = datetime.now().isoformat(timespec="seconds")
         async with _lock:
             _trim()
+        _persist(job)
+        _sync_after_job()
 
 
 def _trim() -> None:
@@ -71,6 +135,7 @@ def start_job(type_: str, title: str, coro_fn, key: str | None = None) -> Job:
     job = Job(id=next(_ids), type=type_, title=title, key=key)
     JOBS[job.id] = job
     job.log_line("任务创建")
+    _persist(job)
     asyncio.get_running_loop().create_task(_run(job, coro_fn))
     return job
 
