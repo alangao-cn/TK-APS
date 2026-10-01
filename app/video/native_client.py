@@ -31,9 +31,12 @@ def build_payload(cfg, prompt: str, image_b64: str, image_mime: str) -> dict:
         "ratio": cfg.video.ratio,
         "resolution": cfg.video.resolution,
         "generate_audio": bool(cfg.video.generate_audio),
-        "seed": int(cfg.video.seed),
-        "watermark": bool(cfg.video.watermark),
     }
+    # Seedance 系的习惯字段：不设置就不传，对齐官方最小请求，换模型不踩字段坑
+    if int(cfg.video.seed) >= 0:
+        payload["seed"] = int(cfg.video.seed)        # -1 = 随机
+    if cfg.video.watermark:
+        payload["watermark"] = True                  # 默认 false，不传等效
     if cfg.video.callback_url:
         payload["callback_url"] = cfg.video.callback_url
     return payload
