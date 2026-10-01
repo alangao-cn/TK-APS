@@ -40,3 +40,18 @@ class Config:
 
 def load_config() -> Config:
     return Config()
+
+
+def apply_selection_overrides(cfg: Config, overrides: dict) -> list[str]:
+    """把一次性的选品参数覆盖到已加载的配置上（网页发起采集时用，不写回 config.yaml）。
+
+    只允许 selection 段的白名单字段，返回实际应用的关键字列表。
+    """
+    allowed = {"period", "region", "categories", "max_pages",
+               "min_profit_cny", "creators_min", "creators_max", "min_stock"}
+    applied = []
+    for k, v in overrides.items():
+        if k in allowed and v is not None:
+            setattr(cfg.selection, k, v)
+            applied.append(k)
+    return applied

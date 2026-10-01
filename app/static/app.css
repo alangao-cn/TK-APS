@@ -163,8 +163,23 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .job-log { margin: 6px 0 0; padding-left: 0; list-style: none; }
 .job-log li { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--text-secondary); word-break: break-all; }
 
+/* 弹窗表单（原生 <dialog>） */
+.dlg {
+  border: none; border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 22px 24px; width: min(560px, calc(100vw - 32px));
+}
+.dlg::backdrop { background: rgba(0, 0, 0, 0.45); }
+.form-grid { display: grid; grid-template-columns: 130px 1fr; gap: 10px 14px; align-items: center; margin: 12px 0; }
+.form-grid > label { margin: 0; }
+.form-grid input, .form-grid select { max-width: none; width: 100%; }
+.cat-box { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.filter-box { border: 1px dashed var(--border); border-radius: 6px; padding: 8px 14px; margin: 6px 0 12px; }
+.filter-box summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
 @media (max-width: 720px) {
   .container { padding: 0 12px; }
   .nav-inner { gap: 14px; padding: 0 12px; overflow-x: auto; }
   .product-cell img { width: 44px; height: 44px; }
+  .form-grid { grid-template-columns: 1fr; }
 }

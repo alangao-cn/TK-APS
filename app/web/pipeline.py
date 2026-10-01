@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,20 +18,28 @@ def _cfg(app_state):
     return app_state.cfg
 
 
-async def run_scrape(request, job) -> None:
+async def run_scrape(request, job, params: dict | None = None) -> None:
     cfg = _cfg(request.app.state)
     if jobs.running_of_type("scrape"):
         raise RuntimeError("已有一个采集任务在跑，等它结束再发起新的")
     log_dir = cfg.root / cfg.storage.data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"scrape_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    argv = [sys.executable, str(cfg.root / "cli.py"), "scrape"]
+    if params:
+        # 参数落盘再传给子进程（--params-file），留底可查，子进程内覆盖 config 的 selection 段
+        params_path = log_dir / f"scrape_{stamp}_params.json"
+        params_path.write_text(json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")
+        argv += ["--params-file", str(params_path)]
+        job.log_line(f"参数：{_summarize_params(params)}")
+    log_path = log_dir / f"scrape_{stamp}.log"
     job.log_line(f"启动子进程：cli.py scrape（日志 {log_path.name}）")
     job.log_line("浏览器窗口会弹出，如需登录 FastMoss 请在窗口里操作")
 
     with log_path.open("w", encoding="utf-8") as fp:
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, str(cfg.root / "cli.py"), "scrape",
-            stdout=fp, stderr=asyncio.subprocess.STDOUT, cwd=str(cfg.root),
+            *argv, stdout=fp, stderr=asyncio.subprocess.STDOUT, cwd=str(cfg.root),
         )
         last_line = None
         while proc.returncode is None:
@@ -43,6 +52,23 @@ async def run_scrape(request, job) -> None:
             job.log_line(f"子进程退出码 {proc.returncode}")
             raise RuntimeError(f"采集失败（退出码 {proc.returncode}），完整日志：{log_path}")
     job.log_line("采集 + 导出完成，去「选品」页查看结果")
+
+
+def _summarize_params(p: dict) -> str:
+    parts = []
+    if p.get("period"):
+        parts.append({"daily": "日榜", "weekly": "周榜", "monthly": "月榜"}.get(p["period"], p["period"]))
+    if p.get("region"):
+        parts.append(str(p["region"]))
+    if p.get("categories"):
+        parts.append(f"{len(p['categories'])} 个类目")
+    if p.get("max_pages"):
+        parts.append(f"每类目 {p['max_pages']} 页")
+    if p.get("min_profit_cny") is not None:
+        parts.append(f"利润≥{p['min_profit_cny']}")
+    if p.get("creators_min") is not None and p.get("creators_max") is not None:
+        parts.append(f"达人 {p['creators_min']}–{p['creators_max']}")
+    return " · ".join(parts)
 
 
 def _tail(path: Path, n: int) -> list[str]:

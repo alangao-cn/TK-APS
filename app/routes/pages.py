@@ -38,6 +38,7 @@ async def index(request: Request):
         "jobs": jobs_mod.recent(12),
         "llm_model": cfg.llm.model,
         "video_model": cfg.video.model,
+        "sel": cfg.selection,
     })
 
 

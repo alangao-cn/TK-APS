@@ -334,10 +334,15 @@ async def collect(cfg, max_pages: int | None = None, record_all: bool = False) -
             raise RuntimeError(f"页面就绪后仍读不到筛选项（当前页面：{page.url}）")
         print(f"[采集] 筛选项映射已保存（{len(radios)} 项，可查类目 ID）")
 
-        print("[采集] 切换到 周榜 …")
-        result = await _expect_poprank(page, lambda: _click_label_radio(page, "周"))
-        _save(raw_dir, "period_week.json", result)
-        print(f"    周榜参数: {result['params']}")
+        # 周期用界面上的单选标签切换（日榜/周榜/月榜），label 文本是实测值
+        period = str(getattr(cfg.selection, "period", "weekly"))
+        period_label = {"daily": "日", "weekly": "周", "monthly": "月"}.get(period)
+        if not period_label:
+            raise RuntimeError(f"不支持的榜单周期 {period!r}（daily / weekly / monthly）")
+        print(f"[采集] 切换到 {period_label}榜 …")
+        result = await _expect_poprank(page, lambda: _click_label_radio(page, period_label))
+        _save(raw_dir, f"period_{period}.json", result)
+        print(f"    {period_label}榜参数: {result['params']}")
         await pause_if_verification(page)
 
         for cat in cfg.selection.categories:

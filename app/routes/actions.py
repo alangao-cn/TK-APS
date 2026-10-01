@@ -28,10 +28,35 @@ async def products_confirm(request: Request, batch: str = Form("latest"),
 
 
 @router.post("/jobs/scrape")
-async def start_scrape(request: Request):
+async def start_scrape(request: Request,
+                       period: str = Form("weekly"),
+                       region: str = Form("BR"),
+                       categories: list[str] = Form(default=[]),
+                       max_pages: int = Form(...),
+                       min_profit_cny: float = Form(...),
+                       creators_min: int = Form(...),
+                       creators_max: int = Form(...),
+                       min_stock: int = Form(...)):
     if jobs.running_of_type("scrape"):
         return back(request, err="已有采集任务在跑")
-    jobs.start_job("scrape", "选品采集（FastMoss）", lambda job: pipeline.run_scrape(request, job))
+    categories = [c.strip() for c in categories if c and c.strip()]
+    if not categories:
+        return back(request, err="至少勾选一个类目")
+    if max_pages < 1 or max_pages > 50:
+        return back(request, err="翻页数需在 1–50 之间")
+    if creators_min > creators_max:
+        return back(request, err="达人下限不能大于上限")
+    if period not in ("daily", "weekly", "monthly"):
+        return back(request, err="不支持的榜单周期")
+
+    params = {
+        "period": period, "region": region.strip().upper() or "BR",
+        "categories": categories, "max_pages": max_pages,
+        "min_profit_cny": min_profit_cny, "creators_min": creators_min,
+        "creators_max": creators_max, "min_stock": min_stock,
+    }
+    jobs.start_job("scrape", "选品采集（FastMoss）",
+                   lambda job: pipeline.run_scrape(request, job, params))
     return back(request, msg="采集任务已启动，浏览器窗口会弹出（如需登录 FastMoss 在窗口里操作）")
 
 

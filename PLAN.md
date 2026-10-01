@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v10 · 2026-10-01
+> 版本 v10.1 · 2026-10-01
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v10.1：发起采集改为**先弹参数表单再确认**：总览页点「发起选品采集」弹出参数弹窗，预填 config.yaml 当前值（榜单周期/地区/类目勾选/每类目翻页数 + 折叠的筛选参数：利润/达人区间/库存），确认后才启动子进程。参数经 `--params-file`（JSON，留底 `data/logs/`）覆盖子进程的 selection 配置，**只影响本次采集，不写回 config.yaml**（`apply_selection_overrides` 白名单控制）。顺带修正：collect 的榜单周期原来在 UI 模式下写死"周榜"，现已真正参数化（日/周/月榜都可选），export 的"最新批次"识别兼容任意 `period_*.json`
 - v10：**第四步（网页）落地**：FastAPI + Jinja2 服务端渲染，`uv run cli.py serve` 启动。五个页面：总览（发起采集子进程 + 任务进度实时轮询）、选品（**按商品勾选确认**写回 selected.json、逐条/批量生成脚本）、脚本（**在线编辑提示词**、重新生成、提交视频）、视频（在线预览、单个下载、勾选 ZIP 批量下载、失败重试）、设置（config.yaml 在线编辑 + 热重载）。登录用 .env 的 `WEB_USERNAME/WEB_PASSWORD`（HMAC 签名 Cookie，无会话表）。确认门槛细化为按商品勾选：`pick_products` 优先读每条商品的 `confirmed`，旧文件的整批字段仍兼容。长任务（采集/脚本/视频）都是内存任务表 + 页面轮询，采集在**子进程**跑（日志 `data/logs/`），不占用服务事件循环。前端手写轻量 CSS，不引 npm/CDN；任务状态有 JSON 接口（`/api/jobs`），以后要上 React+antd 只需加前端层。M1 的 SQLite 暂缓：文件存储已覆盖版本留底/单条重试，任务量上来再迁
 - v9：**第三步（视频生成）落地**：`app/video/`（vertex + native 双客户端、提交/轮询/下载/存档），产出 `data/videos/{商品ID}/video_v{N}.mp4` + 完整任务档案；模型名实测定为 `bytedance/doubao-seedance-2.0`；发现并解决"参考图含真人被审核拦截"问题（自动换图重试）；单商品端到端验证通过（脚本→视频 263 秒出片）
 - v8：**第二步（视频脚本生成）落地**：`app/llm/`（prompt 拼接 + ZenMux Responses API + `[Video Prompt]` 提取），产出 `data/scripts/{商品ID}/script_v{N}.json` 与 `script_latest.md`（含模型、prompt 哈希、token 用量，可回溯对比）；**目录按步骤归类**：第一步产出 → `data/selection/<时间戳>/`、第二步 → `data/scripts/`、第三步（预留）→ `data/videos/`；防 token 浪费：`gen-scripts` 默认只处理 confirmed=true 的商品，`--product` 单条测试；单商品实测通过（gpt-5，入 3068 / 出 2512 tokens）
@@ -388,7 +389,7 @@ storage:    数据目录、视频保留天数
 
 | 页面 | 功能 | 状态 |
 |---|---|---|
-| `/` 总览 | 统计卡片（入选/脚本/视频）、批次历史、**发起选品采集**（子进程跑 `cli.py scrape`，日志落 `data/logs/`）、任务进度实时轮询 | ✅ |
+| `/` 总览 | 统计卡片（入选/脚本/视频）、批次历史、**发起选品采集**（先弹参数表单：周期/地区/类目/翻页数 + 筛选参数，确认后子进程跑 `cli.py scrape`，日志落 `data/logs/`）、任务进度实时轮询 | ✅ |
 | `/products` | 筛选结果：多图商品卡、价格/佣金/利润/达人/库存、FastMoss/TikTok 链接、脚本/视频进度徽章；**按商品勾选确认**；逐条/批量生成脚本 | ✅ |
 | `/scripts` | 每商品最新脚本：**在线编辑提示词**（保存写回 script_v{N}.json 并刷新 latest.md，标 edited）、重新生成（写新版本）、历史版本折叠、提交生成视频；"待生成"区列出已确认无脚本的商品 | ✅ |
 | `/videos` | 视频墙：`<video>` 在线预览、失败原因展示 + 重试、**单个下载**、**勾选后批量下载（ZIP，STORED 不二次压缩）**；文件名 `{日期}_{商品ID}_v{版本}.mp4` | ✅ |

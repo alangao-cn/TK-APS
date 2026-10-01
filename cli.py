@@ -46,6 +46,8 @@ def main() -> None:
     scrape_p = sub.add_parser("scrape", help="正式采集并导出（UI 跳页模式，站点自己签名，最稳）")
     scrape_p.add_argument("--pages", type=int, default=None, help="每个类目翻几页（默认读配置 max_pages）")
     scrape_p.add_argument("--categories", type=str, default=None, help="只跑部分类目，逗号分隔")
+    scrape_p.add_argument("--params-file", type=str, default=None,
+                          help="JSON 参数文件，覆盖 config 的 selection 段（网页发起采集时用）")
     scrape_p.add_argument("--api", action="store_true", help="试 API 直取模式（有 fm-sig 签名头，大概率不可用）")
     gs = sub.add_parser("gen-scripts", help="第二步：为选品商品生成视频脚本（调 ZenMux，注意 token 消耗）")
     gs.add_argument("--product", type=str, default=None, help="只为指定商品ID生成（测试用，忽略确认门槛）")
@@ -75,6 +77,12 @@ def main() -> None:
     elif args.cmd == "probe":
         cmd_probe(cfg)
     elif args.cmd == "scrape":
+        if args.params_file:
+            from app.config import apply_selection_overrides
+
+            overrides = json.loads(Path(args.params_file).read_text(encoding="utf-8"))
+            applied = apply_selection_overrides(cfg, overrides)
+            print(f"[采集] 参数覆盖（{args.params_file}）：{', '.join(applied) or '无'}")
         if args.categories:
             cfg.selection.categories = [c.strip() for c in args.categories.split(",") if c.strip()]
         if args.api:

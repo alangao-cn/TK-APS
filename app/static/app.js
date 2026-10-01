@@ -19,6 +19,20 @@
     });
   });
 
+  // ---- 弹窗（原生 <dialog>）：data-open-dialog 打开 / data-close-dialog 关闭 / Esc 自动 ----
+  document.querySelectorAll("[data-open-dialog]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var dlg = document.getElementById(btn.getAttribute("data-open-dialog"));
+      if (dlg) dlg.showModal();
+    });
+  });
+  document.querySelectorAll("[data-close-dialog]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var dlg = btn.closest("dialog");
+      if (dlg) dlg.close();
+    });
+  });
+
   // ---- 任务进度：每 3 秒拉一次 /api/jobs，有任务跑完时自动刷新页面 ----
   var box = document.getElementById("jobs-box");
   if (!box) return;

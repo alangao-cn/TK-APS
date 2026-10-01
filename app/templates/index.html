@@ -4,11 +4,59 @@
 
 <div class="page-head">
   <h1>总览</h1>
-  <form method="post" action="/jobs/scrape">
-    <button class="btn btn-primary">发起选品采集</button>
-  </form>
+  <button class="btn btn-primary" data-open-dialog="scrape-dialog">发起选品采集</button>
 </div>
 <p class="muted small">采集会弹出浏览器窗口跑 FastMoss 热销榜（需要登录时在窗口里操作），完成后自动补抓详情并导出到「选品」页。</p>
+
+<dialog id="scrape-dialog" class="dlg">
+  <form method="post" action="/jobs/scrape"
+        onsubmit="return confirm('确认开始采集？浏览器窗口会弹出，中途不要关闭它。')">
+    <h3>采集参数</h3>
+    <p class="muted small">以下是 config.yaml 的默认值，本次采集按表单里改后的值跑（只影响本次，不写回配置文件）。</p>
+    <div class="form-grid">
+      <label>榜单周期</label>
+      <select name="period" required>
+        <option value="weekly" {{ 'selected' if sel.period == 'weekly' else '' }}>周榜</option>
+        <option value="daily" {{ 'selected' if sel.period == 'daily' else '' }}>日榜</option>
+        <option value="monthly" {{ 'selected' if sel.period == 'monthly' else '' }}>月榜</option>
+      </select>
+
+      <label>地区</label>
+      <input name="region" value="{{ sel.region }}" maxlength="4" required
+             title="地区代码，同时决定脚本用的市场模板（如 BR → market_BR.md）">
+
+      <label>类目</label>
+      <fieldset class="cat-box">
+        {% for c in sel.categories %}
+        <label class="chk"><input type="checkbox" name="categories" value="{{ c }}" checked> {{ c }}</label>
+        {% endfor %}
+      </fieldset>
+
+      <label>每类目翻页数</label>
+      <input type="number" name="max_pages" min="1" max="50" value="{{ sel.max_pages }}" required>
+    </div>
+
+    <details class="filter-box">
+      <summary>筛选参数（采集后的导出阶段生效）</summary>
+      <div class="form-grid">
+        <label>单件利润下限（元）</label>
+        <input type="number" name="min_profit_cny" step="0.1" min="0" value="{{ sel.min_profit_cny }}" required>
+        <label>带货达人下限</label>
+        <input type="number" name="creators_min" min="0" value="{{ sel.creators_min }}" required>
+        <label>带货达人上限</label>
+        <input type="number" name="creators_max" min="0" value="{{ sel.creators_max }}" required>
+        <label>库存下限</label>
+        <input type="number" name="min_stock" min="0" value="{{ sel.min_stock }}" required>
+      </div>
+      <p class="muted small">筛选条件改了不用重爬：之后随时可以在机器上跑 <code>cli.py export</code> 用新条件离线重筛。</p>
+    </details>
+
+    <div class="dlg-actions">
+      <button type="button" class="btn" data-close-dialog>取消</button>
+      <button type="submit" class="btn btn-primary">开始采集</button>
+    </div>
+  </form>
+</dialog>
 
 <div class="stat-grid">
   <a class="stat card" href="/products">

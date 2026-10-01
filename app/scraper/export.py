@@ -21,7 +21,8 @@ HEADERS = {
 
 def _latest_raw_dir(cfg) -> Path:
     raw_root = cfg.root / cfg.storage.data_dir / "raw"
-    dirs = sorted(d for d in raw_root.iterdir() if d.is_dir() and (d / "period_week.json").exists())
+    dirs = sorted(d for d in raw_root.iterdir()
+                  if d.is_dir() and any(d.glob("period_*.json")))
     if not dirs:
         raise FileNotFoundError(f"{raw_root} 下没有采集数据，先跑 `uv run cli.py scrape`")
     return dirs[-1]
