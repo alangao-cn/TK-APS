@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}视频 · TK_APS{% endblock %}
+{% block content %}
+
+<div class="page-head"><h1>视频</h1></div>
+<p class="muted small">勾选后可打包 ZIP 批量下载；文件名规则 {日期}_{商品ID}_v{版本}.mp4。失败的任务可重试（会自动换商品图）。</p>
+
+<form method="post" action="/videos/zip">
+<div class="video-grid">
+  {% for c in cards %}
+    {% for r in c.records %}
+    <div class="card video-card {{ 'video-failed' if not r.file_exists else '' }}">
+      <div class="video-head">
+        <label class="chk">
+          {% if r.file_exists %}<input type="checkbox" name="checked" value="{{ c.pid }}:{{ r.version }}">{% endif %}
+          <strong>v{{ r.version }}</strong>
+        </label>
+        <span class="badge {{ 'badge-ok' if r.file_exists else 'badge-err' }}">{{ r.status }}</span>
+      </div>
+      {% if r.file_exists %}
+      <video controls preload="metadata" src="/media/videos/{{ c.pid }}/{{ r.file_name }}"></video>
+      {% else %}
+      <div class="video-error">
+        <div class="muted small">{{ r.error or '未生成视频文件' }}</div>
+      </div>
+      {% endif %}
+      <div class="video-meta small">
+        <div class="product-title" title="{{ c.title }}">{{ c.title[:44] }}{% if c.title|length > 44 %}…{% endif %}</div>
+        <div class="muted">
+          <code>{{ c.pid }}</code> ｜ {{ r.created_at }}
+          {% if r.file_exists %}｜ {{ r.size_mb }} MB{% endif %}
+          {% if r.elapsed_seconds %}｜ 耗时 {{ r.elapsed_seconds }}s{% endif %}
+        </div>
+      </div>
+      <div class="video-actions">
+        {% if r.file_exists %}
+        <a class="btn btn-sm" href="/download/video/{{ c.pid }}/{{ r.version }}">下载</a>
+        {% else %}
+        <form method="post" action="/jobs/gen-videos" class="inline-form"
+              onsubmit="return confirm('重试生成视频？按条收费。')">
+          <input type="hidden" name="product" value="{{ c.pid }}">
+          <button class="btn btn-sm">重试</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="card muted" style="grid-column: 1/-1">还没有视频任务。去「脚本」页提交生成。</div>
+  {% endfor %}
+</div>
+
+{% if cards %}
+<div class="form-bar card">
+  <button type="button" class="btn" data-checkall-btn="checked">全选 / 取消</button>
+  <button class="btn btn-primary">打包下载 ZIP</button>
+</div>
+{% endif %}
+</form>
+
+{% endblock %}

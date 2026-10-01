@@ -63,6 +63,10 @@ def main() -> None:
     export_p.add_argument("--raw-dir", type=str, default=None)
     export_p.add_argument("--no-images", action="store_true")
     export_p.add_argument("--enrich", action="store_true", help="补抓入选商品的详情页多图（需要打开浏览器）")
+
+    serve_p = sub.add_parser("serve", help="启动网页（总览/选品/脚本/视频/设置）")
+    serve_p.add_argument("--host", default="127.0.0.1", help="默认本机访问；局域网用 0.0.0.0")
+    serve_p.add_argument("--port", type=int, default=8000)
     args = ap.parse_args()
 
     cfg = load_config()
@@ -109,6 +113,11 @@ def main() -> None:
         saved = asyncio.run(video_service.generate_for_products(cfg, products, args.script_version,
                                                                 args.image))
         print(f"[视频] 完成，成功 {len(saved)}/{len(products)} → data/videos/<商品ID>/")
+    elif args.cmd == "serve":
+        import uvicorn
+
+        print(f"[网页] http://{args.host}:{args.port}（登录账号/密码看 .env 的 WEB_USERNAME/WEB_PASSWORD）")
+        uvicorn.run("app.main:app", host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

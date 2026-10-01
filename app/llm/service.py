@@ -34,7 +34,11 @@ def pick_products(selection: dict, product_id: str | None = None,
         return matched
     if all_flag:
         return list(products)
-    # 默认只处理人工确认过的（selected.json 的 confirmed=true），防止误消耗 token
+    # 默认只处理人工确认过的，防止误消耗 token：
+    # 网页按商品勾选时写的是每条的 confirmed（优先）；旧文件只有整批 confirmed（兼容）
+    per_product = [p for p in products if p.get("confirmed")]
+    if per_product:
+        return per_product
     return list(products) if selection.get("confirmed") else []
 
 

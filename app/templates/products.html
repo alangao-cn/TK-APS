@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}选品 · TK_APS{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>选品结果</h1>
+  <form method="get" action="/products" class="inline-form">
+    <select name="batch" onchange="this.form.submit()">
+      {% for b in batches %}
+      <option value="{{ b.ts }}" {{ 'selected' if b.ts == current_batch or (current_batch == 'latest' and b.is_latest) else '' }}>
+        {{ b.ts }}（{{ b.count }} 件{% if b.is_latest %} · 最新{% endif %}）
+      </option>
+      {% else %}
+      <option value="latest">latest</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if missing %}
+<div class="flash flash-err">找不到选品数据：{{ missing }}。先在总览页发起采集。</div>
+{% else %}
+<p class="muted small">
+  采集时间 {{ generated_at or '—' }} ｜ 共 {{ rows|length }} 件，已勾选 {{ confirmed_count }} 件。
+  勾选 = 确认要做视频的商品（第二步脚本生成只处理勾选的）。利润 = 售价 × 佣金 × 汇率。
+</p>
+
+<form method="post" action="/products/confirm">
+  <input type="hidden" name="batch" value="{{ current_batch }}">
+  <div class="card table-card">
+    <table class="products-table">
+      <thead>
+        <tr>
+          <th><input type="checkbox" data-checkall="confirm"></th>
+          <th>商品</th>
+          <th>价格</th>
+          <th>佣金</th>
+          <th>单件利润</th>
+          <th>达人</th>
+          <th>周销</th>
+          <th>库存</th>
+          <th>评分</th>
+          <th>进度</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'row-confirmed' if r.confirmed else '' }}">
+          <td><input type="checkbox" name="confirm" value="{{ r.pid }}" {{ 'checked' if r.confirmed else '' }}></td>
+          <td class="cell-product">
+            <div class="product-cell">
+              {% if r.images_local %}
+              <img src="/media/images/{{ r.images_local[0].split('/')[-1] }}" loading="lazy"
+                   onerror="this.style.visibility='hidden'">
+              {% endif %}
+              <div>
+                <div class="product-title" title="{{ r.title }}">{{ r.title[:52] }}{% if r.title|length > 52 %}…{% endif %}</div>
+                <div class="muted small">{{ r.category or '' }}</div>
+                <div class="small">
+                  <a href="{{ r.fastmoss_url }}" target="_blank">FastMoss</a>
+                  ｜ <a href="{{ r.tiktok_url }}" target="_blank">TikTok</a>
+                  ｜ <code>{{ r.pid }}</code>
+                </div>
+              </div>
+            </div>
+          </td>
+          <td nowrap>R$ {{ r.price_min }}{% if r.price_max and r.price_max != r.price_min %}–{{ r.price_max }}{% endif %}</td>
+          <td>{{ r.commission_rate }}</td>
+          <td class="num-strong">¥{{ r.profit_cny }}</td>
+          <td>{{ r.creators }}</td>
+          <td>{{ r.sales_week }}</td>
+          <td>{{ r.stock if r.stock is not none else '？' }}</td>
+          <td>{{ r.rating or '—' }}</td>
+          <td class="small">
+            {% if r.has_script %}<span class="badge badge-ok">脚本 v{{ r.script_version }}</span>{% else %}<span class="badge">无脚本</span>{% endif %}
+            {% if r.video_count %}<span class="badge badge-ok">视频 ×{{ r.video_count }}</span>{% endif %}
+            {% if r.video_latest and r.video_latest.status not in ('succeeded',) and not r.video_latest.file_exists %}
+              <span class="badge badge-err">{{ r.video_latest.status }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not r.has_script %}
+            <form method="post" action="/jobs/gen-scripts" class="inline-form">
+              <input type="hidden" name="product" value="{{ r.pid }}">
+              <button class="btn btn-sm">生成脚本</button>
+            </form>
+            {% else %}
+            <a class="btn btn-sm" href="/scripts#p{{ r.pid }}">改脚本/出视频</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="form-bar">
+    <button type="button" class="btn" data-checkall-btn="confirm">全选 / 取消</button>
+    <button class="btn btn-primary" onclick="return confirm('保存勾选结果？')">保存确认勾选</button>
+    <span class="muted small">保存后，批量生成脚本只处理勾选的商品</span>
+  </div>
+</form>
+
+<form method="post" action="/jobs/gen-scripts" class="card bulk-card"
+      onsubmit="return confirm('为全部已勾选商品生成脚本？会消耗 LLM token。')">
+  <input type="hidden" name="all_confirmed" value="true">
+  <button class="btn">批量生成脚本（已勾选 {{ confirmed_count }} 件）</button>
+  <span class="muted small">逐件调用 {{ llm_model if llm_model is defined else 'LLM' }}，单件约 3.5K tokens</span>
+</form>
+{% endif %}
+
+{% endblock %}

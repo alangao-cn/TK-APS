@@ -9,4 +9,8 @@ dependencies = [
     "pyyaml>=6.0",
     "openai>=1.60",
     "pillow>=10.0",
+    "fastapi>=0.142.2",
+    "uvicorn[standard]>=0.54.0",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.32",
 ]

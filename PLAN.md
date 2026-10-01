@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v9 · 2026-09-27
+> 版本 v10 · 2026-10-01
 > 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v10：**第四步（网页）落地**：FastAPI + Jinja2 服务端渲染，`uv run cli.py serve` 启动。五个页面：总览（发起采集子进程 + 任务进度实时轮询）、选品（**按商品勾选确认**写回 selected.json、逐条/批量生成脚本）、脚本（**在线编辑提示词**、重新生成、提交视频）、视频（在线预览、单个下载、勾选 ZIP 批量下载、失败重试）、设置（config.yaml 在线编辑 + 热重载）。登录用 .env 的 `WEB_USERNAME/WEB_PASSWORD`（HMAC 签名 Cookie，无会话表）。确认门槛细化为按商品勾选：`pick_products` 优先读每条商品的 `confirmed`，旧文件的整批字段仍兼容。长任务（采集/脚本/视频）都是内存任务表 + 页面轮询，采集在**子进程**跑（日志 `data/logs/`），不占用服务事件循环。前端手写轻量 CSS，不引 npm/CDN；任务状态有 JSON 接口（`/api/jobs`），以后要上 React+antd 只需加前端层。M1 的 SQLite 暂缓：文件存储已覆盖版本留底/单条重试，任务量上来再迁
 - v9：**第三步（视频生成）落地**：`app/video/`（vertex + native 双客户端、提交/轮询/下载/存档），产出 `data/videos/{商品ID}/video_v{N}.mp4` + 完整任务档案；模型名实测定为 `bytedance/doubao-seedance-2.0`；发现并解决"参考图含真人被审核拦截"问题（自动换图重试）；单商品端到端验证通过（脚本→视频 263 秒出片）
 - v8：**第二步（视频脚本生成）落地**：`app/llm/`（prompt 拼接 + ZenMux Responses API + `[Video Prompt]` 提取），产出 `data/scripts/{商品ID}/script_v{N}.json` 与 `script_latest.md`（含模型、prompt 哈希、token 用量，可回溯对比）；**目录按步骤归类**：第一步产出 → `data/selection/<时间戳>/`、第二步 → `data/scripts/`、第三步（预留）→ `data/videos/`；防 token 浪费：`gen-scripts` 默认只处理 confirmed=true 的商品，`--product` 单条测试；单商品实测通过（gpt-5，入 3068 / 出 2512 tokens）
 
@@ -135,7 +136,7 @@ uv run python scripts/diag_request.py     # 诊断：抓真实请求头/分页�
 | `detail_{商品ID}.json` | 补抓的详情页接口原始数据（`/api/goods/v3/base`） |
 | `*_p*.json`、`radio_values.json` | 榜单接口原始数据（改筛选规则不用重爬） |
 
-**流程门槛**：`selected.json` 的 `confirmed` 默认 false；人工确认后才置 true，第二步只消费 confirmed=true 的数据（现阶段手动改，M2 网页阶段做成勾选）。
+**流程门槛**：`selected.json` 的 `confirmed` 默认 false；**网页「选品」页按商品勾选**后保存（写每条商品的 `confirmed` 字段并同步 `selected_latest.json`），第二步只消费勾选的商品（`pick_products` 优先读每条的 confirmed；兼容旧版整批字段；CLI 也可手动改 JSON）。
 
 **详情补抓与库存过滤**：`scrape` 的完整流程是 达人数/利润初筛 → 逐个补抓详情页（约 4 秒/件，结果缓存在 `detail_{商品ID}.json`，重跑 export 直接用缓存）→ **库存 ≥ min_stock 再过滤**。单独补跑用 `uv run cli.py export --enrich`。FastMoss 榜单和详情接口都**没有商品描述字段**——TikTok 商品标题本身即长描述，已并入 `product_brief`；若 GPT 效果需要真实描述，再考虑抓 TikTok 商品页（另立任务）。
 
@@ -383,19 +384,31 @@ storage:    数据目录、视频保留天数
 
 ---
 
-## 6. 模块四：网页
+## 6. 模块四：网页（2026-10-01 已落地初版）
 
-| 页面 | 功能 |
-|---|---|
-| `/` 首页 | 发起选品任务，查看各阶段的进度；需要人工登录时显示提示（远程桌面连到 Windows 机器处理） |
-| `/products` | 筛选结果：图片、价格、佣金、单件利润、达人数、FastMoss 商品链接；**勾选**后生成脚本；支持手动导入商品 |
-| `/scripts` | 每个商品的视频 Prompt，**可以在线修改**，也可以重新生成，确认后提交生成视频 |
-| `/videos` | 视频列表：在线预览、状态、**单个下载**、**勾选后批量下载（ZIP）**、失败重试 |
-| `/settings` | 查看和修改配置 |
+| 页面 | 功能 | 状态 |
+|---|---|---|
+| `/` 总览 | 统计卡片（入选/脚本/视频）、批次历史、**发起选品采集**（子进程跑 `cli.py scrape`，日志落 `data/logs/`）、任务进度实时轮询 | ✅ |
+| `/products` | 筛选结果：多图商品卡、价格/佣金/利润/达人/库存、FastMoss/TikTok 链接、脚本/视频进度徽章；**按商品勾选确认**；逐条/批量生成脚本 | ✅ |
+| `/scripts` | 每商品最新脚本：**在线编辑提示词**（保存写回 script_v{N}.json 并刷新 latest.md，标 edited）、重新生成（写新版本）、历史版本折叠、提交生成视频；"待生成"区列出已确认无脚本的商品 | ✅ |
+| `/videos` | 视频墙：`<video>` 在线预览、失败原因展示 + 重试、**单个下载**、**勾选后批量下载（ZIP，STORED 不二次压缩）**；文件名 `{日期}_{商品ID}_v{版本}.mp4` | ✅ |
+| `/settings` | 密钥状态（只显示已配置/未配置）、config.yaml 在线编辑（YAML 校验）、保存/重载即热生效 | ✅ |
 
-- 批量下载用流式 ZIP（`zipstream-ng`），边打包边下载，不占太多内存
-- 文件命名规则：`{日期}_{商品ID}_v{版本号}.mp4`
-- 整个网页设置登录密码（虽然是局域网访问，也避免同网络的人误触）
+- 批量下载用临时文件 + `zipfile`（mp4 已压缩，STORED 模式，量级可控）；任务多后再换 `zipstream-ng` 流式
+- 登录：`.env` 的 `WEB_USERNAME/WEB_PASSWORD`，HMAC 签名 Cookie（改密码即全部会话失效），未登录全站 302 到 /login
+- 长任务编排：`app/web/jobs.py` 内存任务表（保留最近 100 条）+ `app/web/pipeline.py`；脚本/视频生成直接在服务事件循环里跑（服务层本来就是 async），采集在子进程跑避免有头 Playwright 干扰
+- 前端：Jinja2 + 手写 CSS（antd 观感），**不引 npm 构建链和 CDN**（局域网/离线可用，Windows 部署简单）；任务状态已 JSON 化（`/api/jobs`），以后要复杂前端可在同一后端上加 React + antd SPA
+
+### 6.1 用法
+
+```
+uv run cli.py serve                        # 本机访问 http://127.0.0.1:8000
+uv run cli.py serve --host 0.0.0.0         # 局域网访问 http://机器IP:8000
+```
+
+- 登录账号 = `.env` 的 `WEB_USERNAME` / `WEB_PASSWORD`
+- 页面顶部有全局任务进度条（每 3 秒轮询）；带自动刷新的页面在任务从"有"变"无"时自动 reload，新产出立即可见
+- 费用相关的按钮（生成脚本/视频）都有确认弹窗；生成视频仍然按条收费，参考图的审核换图逻辑与 CLI 一致
 
 ---
 
@@ -420,34 +433,34 @@ videos     id, script_id, variant, model, params_json, job_id, status(queued/run
 ```
 TK_APS/
 ├── app/
-│   ├── main.py              # FastAPI 入口
-│   ├── config.py            # 读取 .env + config.yaml（pydantic 校验）
-│   ├── models.py / db.py    # SQLModel
+│   ├── main.py              # FastAPI 入口（登录中间件 + 路由组装）
+│   ├── config.py            # 读取 .env + config.yaml
+│   ├── web/                 # 网页支撑：auth（HMAC 会话）/ jobs（任务表）/ pipeline（后台编排）/ store（文件数据读写）
+│   ├── routes/              # 页面与接口：pages / actions / downloads / api / auth
+│   ├── templates/           # Jinja2 模板（6 个页面）
+│   ├── static/              # 手写 CSS + 任务轮询 JS（无 CDN）
 │   ├── scraper/             # 模块一：browser / leaderboard / detail / parser / filter
 │   ├── llm/                 # 模块二：client / prompt_builder / parser
-│   ├── video/               # 模块三：vertex_client / native_client / worker
-│   ├── pipeline.py          # 编排、后台任务、启动时恢复未完成任务
-│   ├── routes/              # 页面与接口
-│   └── templates/           # Jinja2 + HTMX
+│   └── video/               # 模块三：vertex_client / native_client / worker
 ├── prompts/
 │   ├── director_base.md     # ← 已写好初版
 │   └── market_BR.md         # ← 已写好初版
 ├── config.yaml              # ← 已写好初版
 ├── .env.example
-├── cli.py                   # 命令行：scrape / gen-scripts / gen-videos / run / serve
+├── cli.py                   # 命令行：login / scrape / export / gen-scripts / gen-videos / serve
 ├── pyproject.toml           # uv 管理依赖，固定 Python 3.12
-├── deploy/                  # Windows：环境安装、任务计划自启脚本（以后迁 Linux 再补 Docker / noVNC）
 ├── data/
 │   ├── raw/<时间戳>/        # 第一步：接口原始数据（榜单 + 详情缓存）
 │   ├── selection/<时间戳>/  # 第一步产出：products_*.csv、selected.json / selected.md
 │   │                        #   （最新副本固定在 data/selection/selected_latest.*）
 │   ├── scripts/<商品ID>/    # 第二步产出：script_v{N}.json + script_latest.md
-│   ├── videos/<商品ID>/     # 第三步产出：视频文件（待做）
-│   └── images/              # 商品图 {商品ID}_{n}.webp
+│   ├── videos/<商品ID>/     # 第三步产出：video_v{N}.mp4 + video_v{N}.json
+│   ├── images/              # 商品图 {商品ID}_{n}.webp
+│   └── logs/                # 网页发起的采集子进程日志
 └── browser_profile/         # FastMoss 登录状态
 ```
 
-主要依赖：`fastapi`、`uvicorn`、`openai`（调用 LLM）、`httpx`（调用视频接口，两种方式都直接发 HTTP 请求）、`playwright`、`sqlmodel`、`pyyaml`、`pillow`（压缩图片）、`zipstream-ng`。
+主要依赖：`fastapi`、`uvicorn`、`jinja2`、`python-multipart`（网页）、`openai`（调用 LLM）、`httpx`（调用视频接口，两种方式都直接发 HTTP 请求）、`playwright`、`pyyaml`、`pillow`（压缩图片）。
 
 ---
 
@@ -456,8 +469,8 @@ TK_APS/
 | 阶段 | 内容 | 在哪里做 | 预估 |
 |---|---|---|---|
 | **M0 核心流程** | 写好模块二、三的核心代码，提供命令 `cli.py run --product 商品.json`，用 3–5 个手动输入的商品跑通"脚本 → 视频"。同时逐项确认第 4.6 节的问题（模型名称、参考图和首帧哪个效果好、Prompt 中如何引用参考图、9:16 和口播、单条视频价格和耗时），有条件的话对比 Seedance 2 和 Veo 3.1 的效果；根据生成效果调整 Prompt | 本地 Mac | 1 天 |
-| **M1 完善模块二、三** | 数据库、并发、重试、断点恢复、手动导入商品 | 本地 Mac | 1–2 天 |
-| **M2 网页** | 5 个页面、批量下载、登录密码 | 本地 Mac | 2–3 天 |
+| **M1 完善模块二、三** | ~~数据库~~（暂缓：文件存储已覆盖版本留底/单条重试，量级上来再迁 SQLite）、手动导入商品、服务重启后恢复未完成任务（当前任务表在内存，重启丢进度但产出不丢） | 本地 Mac | 1–2 天 |
+| **M2 网页** | **初版已完成**（2026-10-01，见第 6 节）：5 个页面、登录密码、任务进度、批量下载。待办：手动导入商品入口、缩略图（ffmpeg）、`variants_per_product` 多版本对比 | 本地 Mac | — |
 | **M3 部署** | 部署到 Windows 机器：uv 装环境、任务计划自启、远程桌面登录 FastMoss、局域网访问网页 | Windows 机器 | 1 天 |
 | **M4 爬虫** | FastMoss 选品爬虫——**初版已完成并实测跑通**（2026-09-27，标准会员；见 2.2–2.5）。待办：全量 50 页跑一次验证 30–70 达人段；确认用热推榜还是销量榜 | 本地 Mac 已测，Windows 同一套命令 | — |
 | **M5 完善** | 定时任务（比如每周一自动选品）、费用统计、日志、异常通知 | Windows 机器 | 1–2 天 |

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}总览 · TK_APS{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>总览</h1>
+  <form method="post" action="/jobs/scrape">
+    <button class="btn btn-primary">发起选品采集</button>
+  </form>
+</div>
+<p class="muted small">采集会弹出浏览器窗口跑 FastMoss 热销榜（需要登录时在窗口里操作），完成后自动补抓详情并导出到「选品」页。</p>
+
+<div class="stat-grid">
+  <a class="stat card" href="/products">
+    <div class="stat-num">{{ latest_batch.count if latest_batch else 0 }}</div>
+    <div class="stat-label">入选商品{% if latest_batch %}（{{ latest_batch.ts }}）{% endif %}</div>
+    {% if latest_batch %}<div class="stat-extra">已确认 {{ latest_batch.confirmed_count }}/{{ latest_batch.count }}</div>{% endif %}
+  </a>
+  <a class="stat card" href="/scripts">
+    <div class="stat-num">{{ script_ok }}</div>
+    <div class="stat-label">视频脚本</div>
+    <div class="stat-extra">模型 {{ llm_model }}</div>
+  </a>
+  <a class="stat card" href="/videos">
+    <div class="stat-num">{{ video_files }}</div>
+    <div class="stat-label">已出视频</div>
+    <div class="stat-extra">失败 {{ video_failed }} ｜ {{ video_model }}</div>
+  </a>
+</div>
+
+<h2>批次历史</h2>
+<div class="card">
+  <table>
+    <thead><tr><th>批次</th><th>采集时间</th><th>入选</th><th>已确认</th><th></th></tr></thead>
+    <tbody>
+      {% for b in batches %}
+      <tr>
+        <td><code>{{ b.ts }}</code>{% if b.is_latest %} <span class="badge">最新</span>{% endif %}</td>
+        <td>{{ b.generated_at or '—' }}</td>
+        <td>{{ b.count }}</td>
+        <td>{{ b.confirmed_count }}</td>
+        <td><a href="/products?batch={{ b.ts }}">查看 →</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">还没有采集记录，点右上角「发起选品采集」</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
