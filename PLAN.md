@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v10.3 · 2026-10-01
-> 技术栈：**Python 3.12**（FastAPI + Playwright + SQLite）
+> 版本 v11 · 2026-10-01
+> 技术栈：**Python 3.12 后端**（FastAPI + Playwright + SQLite）+ **React 前端**（Vite + TypeScript + antd）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v11：**架构升级方案**（第 12 节，待确认后开工）：前端重写为 React + antd SPA，Python 只做后端 JSON API；引入 **SQLite 数据库**（SQLModel）做事实源，文件退为工件存档；交互重设计为"以商品为中心的流水线"——解决三个痛点：跨页找不到刚生成的脚本/对应商品（改为商品详情页一条龙、原地刷新、"刚刚"高亮）、无时间维度（批次按日期分组、今天/昨天过滤）、无批次管理（batches 表 + 漏斗统计卡片）。Python 服务层（scraper/llm/video）零改动复用；构建产物由 FastAPI 托管，Windows 生产环境不需要 Node
 - v10.3：**换模型踩坑修复**——vertex 与 native 两条通道各自只支持一部分模型：实测 `alibaba/wan3.0-video` 被 vertex 通道拒绝（404 model_not_supported，"not supported by Veo API"）。现在提交时识别"模型不支持"错误（`errors.ModelNotSupported`，匹配 404 / model_not_supported / invalid_model 等），**自动切换另一条通道重试**，任务档案记录实际使用的 api；两条都不行才报错，并提示以 `GET /api/v1/models` 为准。wan3.0 走 native 接口（官方 curl 示例确认），$0.05/秒（10 秒约 $0.5）；`bfl/flux-3-video` 预计同样只支持某一条通道，切模型时程序会自动试。已用 MockTransport 做了三场景零成本测试：vertex 拒绝自动切 native 出片、双通道都拒绝时汇总报错、seedance 原路径回归
 - v10.2：修复**任务自拦截 bug**——防重复检查在任务启动后才执行，把任务自己当成了"已在跑的旧任务"，导致生成视频/采集任务一提交就报"已有任务在跑"失败（原商品匹配用标题子串，还会误伤 ID 前缀相同的商品）。改为 Job 带 `key` 精确匹配 + 检查排除自身 + 路由层先拦（不建任务直接提示）。`/api/jobs` 轮询自适应：有任务 3s、空闲 20s、页面后台暂停
 - v10.1：发起采集改为**先弹参数表单再确认**：总览页点「发起选品采集」弹出参数弹窗，预填 config.yaml 当前值（榜单周期/地区/类目勾选/每类目翻页数 + 折叠的筛选参数：利润/达人区间/库存），确认后才启动子进程。参数经 `--params-file`（JSON，留底 `data/logs/`）覆盖子进程的 selection 配置，**只影响本次采集，不写回 config.yaml**（`apply_selection_overrides` 白名单控制）。顺带修正：collect 的榜单周期原来在 UI 模式下写死"周榜"，现已真正参数化（日/周/月榜都可选），export 的"最新批次"识别兼容任意 `period_*.json`
@@ -30,7 +31,7 @@
 | 1. FastMoss 选品 | Playwright 驱动真实浏览器 + 截获页面自己请求到的数据（不走官方付费 API） | `config.yaml → selection` |
 | 2. 生成视频脚本 | ZenMux Responses API，默认 `openai/gpt-5`，同时传入商品文字信息和主图 | `config.yaml → llm`，`prompts/` |
 | 3. 生成视频 | ZenMux 视频接口（默认 Vertex AI 兼容方式，可切换原生方式），默认模型 Seedance 2，带商品图，异步提交后轮询 | `config.yaml → video` |
-| 4. 视频下载页 | FastAPI 网页：预览、单个下载、勾选后打包 ZIP 批量下载 | 无 |
+| 4. 视频下载页 | ~~FastAPI 网页~~ → **v11 起改为 React + antd SPA**（Python 只做 JSON API，见第 12 节） | `config.yaml → video` |
 
 流程是**半自动**的，有两个人工确认点：选品结果出来后，勾选要做的商品；脚本生成后，可以修改再提交生成视频。
 
@@ -387,7 +388,7 @@ storage:    数据目录、视频保留天数
 
 ---
 
-## 6. 模块四：网页（2026-10-01 已落地初版）
+## 6. 模块四：网页（2026-10-01 已落地初版；**v11 方案确认后将由 React SPA 替代**，见第 12 节）
 
 | 页面 | 功能 | 状态 |
 |---|---|---|
@@ -505,3 +506,113 @@ TK_APS/
 2. **FastMoss 账号**：专门注册一个账号；先按免费权限实测 2.4 节的清单，再决定要不要开会员
 3. **测试商品**：准备 3–5 个 FastMoss 商品链接（热销榜上的），最好覆盖不同类目（运动户外、居家、五金各一两个）
 4. **Prompt**：`prompts/` 下的两个文件是第一版，M0 试跑后再一起调整
+
+---
+
+## 12. v11 架构升级：React 前端 + SQLite（待确认后开工）
+
+### 12.1 评估结论
+
+当前 Jinja 多页版的三个痛点，根因是**页面各自为政、以文件目录当数据库、没有共享上下文**：
+
+| 痛点 | 根因 | v11 方案 |
+|---|---|---|
+| 生成了脚本，切到脚本页找不到是哪条、对应哪个商品 | 三个列表页互不关联，跳页丢上下文 | 以商品为中心的详情页：选品信息/脚本/视频一条龙，生成后**原地刷新**，不跳页 |
+| 分不清今天的 / 昨天的脚本 | 文件目录没有查询能力 | DB `created_at` + 批次按日期分组 + "今天"快捷过滤 + 最近更新置顶加"刚刚"徽标 |
+| 没有批次管理 | 批次只是目录名 | `batches` 表：每批一个卡片，漏斗统计（入选→确认→脚本→视频），可加备注 |
+
+**结论：三项建议全部采纳**（React+antd 前端、Python 纯后端、SQLite），加三条复杂度红线：
+
+1. **生产部署不需要 Node**：前端 `npm run build` 产出 `frontend/dist`，由 FastAPI 静态托管；Windows 机器只跑 Python 一个进程（开发时才用 Vite dev server + 代理）
+2. **不引全局状态库**：TanStack Query 管服务端状态（轮询/缓存/失效刷新），本地状态用 React 自带 hooks，不装 Redux
+3. **Python 服务层零改动**：`app/scraper`、`app/llm`、`app/video` 原样复用，只在外面包 DB 记录和 API 路由
+
+### 12.2 数据库模型（SQLite + SQLModel，`app/models.py`）
+
+```
+batches   id, created_at, source(scrape/manual/import), params_json, note, status
+products  id, batch_id→batches, product_id(商品ID), title, category, region,
+          price_min/max, currency, commission_rate, creators, creators_total, sales_week,
+          profit_cny, rating, stock, review_count, image_urls(JSON), images_local(JSON),
+          fastmoss_url, tiktok_url, product_brief,
+          confirmed(默认false), confirmed_at, created_at, updated_at
+scripts   id, product_row_id→products, version, status(ok/parse_failed), model,
+          video_prompt, hook, edited, prompt_hash, tokens_in, tokens_out,
+          file_path(留底JSON), created_at, updated_at
+videos    id, script_id→scripts, version, status, model, api, params_json, error,
+          local_path, size_mb, remote_url, file_path(留底JSON), created_at, finished_at
+jobs      id, type(scrape/gen_scripts/gen_video), ref_key, status, log(JSON), error,
+          created_at, finished_at
+```
+
+**DB 与文件的分工**：DB 是流水线的事实源（实体、状态、确认勾选、版本关系、时间）；文件退为**工件存档**——`data/raw/`（爬虫原始数据，审计用）、`data/scripts|videos/*.json`（任务留底）、`data/images|videos/*.媒体`（大文件不走 DB）。商品图和视频通过路径引用由 API 流式输出。
+
+**与 CLI 的兼容**：采集子进程照旧产出 `selected.json` 等文件，完成后自动**导入 DB**（import 函数读文件 upsert，幂等，启动时也会全量同步一次）；网页上的勾选确认/脚本编辑**双写**（DB + selected_latest.json/script_v{N}.json），CLI 命令行为完全不变。
+
+### 12.3 API 设计（`app/api/`，全部 JSON）
+
+```
+POST /api/auth/login | logout                       # 会话沿用现在的 HMAC Cookie
+GET  /api/batches                                    # 列表（含每批漏斗统计）
+GET  /api/batches/{id}                               # 批次详情 + 商品行（进度徽章）
+POST /api/batches/{id}/confirm                       # 勾选确认（双写文件）
+POST /api/batches/{id}/gen-scripts                   # 批量为已确认商品生成脚本（job）
+GET  /api/products/{rowId}                           # 商品全量：信息+全部图+脚本版本+视频
+GET  /api/products/{rowId}/images/{n}                # 图片流
+POST /api/products/{rowId}/gen-script                # 单商品生成脚本（job）
+PUT  /api/scripts/{id}                               # 编辑 video_prompt（双写文件）
+POST /api/scripts/{id}/gen-video                     # 用该版脚本生成视频（job）
+GET  /api/videos                                     # 全局视频库（按批次/日期/状态过滤）
+GET  /api/videos/{id}/file | /download               # 在线播放 / 下载
+POST /api/videos/zip                                 # 勾选打包 ZIP
+POST /api/scrape                                     # 发起采集（参数：周期/地区/类目/翻页+筛选）
+GET  /api/jobs /api/jobs/{id}                        # 任务进度（前端轮询）
+GET  /api/settings   PUT /api/settings               # 配置查看/保存/热重载
+```
+
+### 12.4 前端结构（`frontend/`，Vite + React + TypeScript + antd v5）
+
+```
+frontend/src/
+├── api/            # fetch 封装 + 各资源的 hooks（useBatches/useProduct/useJobs…）
+├── pages/
+│   ├── Login.tsx
+│   ├── Batches.tsx        # 工作台：批次卡片按"今天/昨天/更早"分组，漏斗数字
+│   ├── BatchDetail.tsx    # 商品表（antd Table）：筛选（已确认/有脚本/有视频/关键词）、
+│   │                      #   勾选确认、批量生成脚本、行点击进商品详情
+│   ├── ProductDetail.tsx  # ★核心页：Steps(选品→脚本→视频) 一条龙
+│   ├── Videos.tsx         # 全局视频库：预览/下载/ZIP/失败重试
+│   └── Settings.tsx
+├── components/     # JobMonitor（全局任务浮窗+日志抽屉）、ScriptEditor、VideoCard、StateBadge…
+└── App.tsx         # 路由 + 布局（antd Layout 顶栏）
+```
+
+路由：`/login`、`/`（批次）、`/batch/:id`、`/product/:id`、`/videos`、`/settings`。
+
+**交互关键点（对着痛点逐条落）**：
+
+- 商品详情页 = 唯一的工作现场：上半是商品信息和图廊，中间脚本（最新版可编辑 + 版本历史折叠 + 重新生成按钮），下半视频（卡片墙 + 生成按钮）。点"生成脚本"后原地显示进行中，完成自动刷新填入——**全程不跳页**
+- 列表默认按 `updated_at` 倒序，最近变过的行带"刚刚/x 分钟前"徽标（antd Tag），一眼看到刚生成的东西
+- 全局任务监控：右下角 FloatButton 显示进行中任务数，点开抽屉看实时日志；任务完成弹 Notification 并自动刷新所在视图（TanStack Query invalidation）
+- 批次卡片：`入选 12 → 确认 5 → 脚本 4 → 视频 3` 的漏斗 + 状态色，点进批次看商品表
+
+### 12.5 数据迁移
+
+现有数据很少（1 个批次 12 商品、2 份脚本、2 条视频任务），F1 阶段写一次性导入：扫 `data/selection|scripts|videos` upsert 进 DB，跑 `uv run cli.py sync-db`。此后启动时自动增量同步（以文件为准的字段不覆盖 DB 里的确认/编辑状态）。
+
+### 12.6 里程碑（每个阶段都可单独验收）
+
+| 阶段 | 内容 | 预估 |
+|---|---|---|
+| **F1 数据层** | SQLModel 建表 + `cli.py sync-db` 导入现有数据 + 启动自动同步 + jobs 入库（重启可恢复中断标记） | 0.5–1 天 |
+| **F2 API + 前端骨架** | 全部 /api 端点；Vite 项目 + 登录 + 布局 + 路由 + JobMonitor；开发代理打通 | 1 天 |
+| **F3 批次与商品** | 批次工作台 + 批次详情表 + 勾选确认 + 生成脚本（单/批） | 1 天 |
+| **F4 商品详情一条龙** | 脚本编辑/版本/重新生成 + 视频生成/预览/下载 + 全局视频库 + ZIP | 1–1.5 天 |
+| **F5 采集与设置** | 采集参数 Modal（复用现有参数链路）+ 设置页 | 0.5 天 |
+| **F6 切换收尾** | FastAPI 托管 frontend/dist；移除 Jinja 页面与旧路由；部署说明更新 | 0.5 天 |
+
+### 12.7 开发与部署形态
+
+- **开发**：终端 1 跑 `uv run cli.py serve`（API :8000），终端 2 跑 `npm run dev`（Vite :5173，代理 /api → :8000）；改前端即时热更
+- **生产**：`npm run build` 后 FastAPI 同时服务 `/api/*` 和 `frontend/dist` 静态文件，**单进程**，Windows 部署流程不变（只在需要改前端时才用 Node 重新 build）
+- 依赖新增：后端 `sqlmodel`（带 SQLAlchemy）；前端 `react / react-router / antd / @tanstack/react-query / dayjs`
