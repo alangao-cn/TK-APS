@@ -24,6 +24,7 @@ class Job:
     type: str                 # scrape / gen-scripts / gen-videos
     title: str
     status: str = "running"   # running / succeeded / failed
+    key: str | None = None    # 防重复用的业务键（如 "scrape"、"gen-videos:{商品ID}"）
     log: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     finished_at: str | None = None
@@ -66,12 +67,16 @@ def _trim() -> None:
             JOBS.pop(jid, None)
 
 
-def start_job(type_: str, title: str, coro_fn) -> Job:
-    job = Job(id=next(_ids), type=type_, title=title)
+def start_job(type_: str, title: str, coro_fn, key: str | None = None) -> Job:
+    job = Job(id=next(_ids), type=type_, title=title, key=key)
     JOBS[job.id] = job
     job.log_line("任务创建")
     asyncio.get_running_loop().create_task(_run(job, coro_fn))
     return job
+
+
+def is_running(key: str) -> bool:
+    return any(j.status == "running" and j.key == key for j in JOBS.values())
 
 
 def running_of_type(type_: str) -> list[Job]:

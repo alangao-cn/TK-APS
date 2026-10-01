@@ -20,7 +20,8 @@ def _cfg(app_state):
 
 async def run_scrape(request, job, params: dict | None = None) -> None:
     cfg = _cfg(request.app.state)
-    if jobs.running_of_type("scrape"):
+    # 防重复：只看"别的"采集任务（任务启动后自己也在注册表里，必须排除自身）
+    if any(j is not job for j in jobs.running_of_type("scrape")):
         raise RuntimeError("已有一个采集任务在跑，等它结束再发起新的")
     log_dir = cfg.root / cfg.storage.data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -100,9 +101,11 @@ async def run_gen_video(request, job, product_id: str, script_version: int | Non
     from app.video import service as video_service
 
     cfg = _cfg(request.app.state)
-    for j in jobs.running_of_type("gen-videos"):
-        if product_id in j.title:
-            raise RuntimeError(f"商品 {product_id} 已有视频任务在跑")
+    # 防重复：同商品的旧任务还在跑才拦（用 key 精确匹配，排除自身；不要用标题子串匹配）
+    dup = [j for j in jobs.running_of_type("gen-videos")
+           if j is not job and j.key == f"gen-videos:{product_id}"]
+    if dup:
+        raise RuntimeError(f"商品 {product_id} 已有视频任务在跑，等它结束再试")
     job.log_line(f"商品 {product_id}（模型 {cfg.video.model}，{cfg.video.api} 接口）"
                  + (f"，指定脚本 v{script_version}" if script_version else "")
                  + (f"，指定第 {image_index} 张图" if image_index is not None else ""))

@@ -37,7 +37,7 @@ async def start_scrape(request: Request,
                        creators_min: int = Form(...),
                        creators_max: int = Form(...),
                        min_stock: int = Form(...)):
-    if jobs.running_of_type("scrape"):
+    if jobs.is_running("scrape"):
         return back(request, err="已有采集任务在跑")
     categories = [c.strip() for c in categories if c and c.strip()]
     if not categories:
@@ -56,7 +56,7 @@ async def start_scrape(request: Request,
         "creators_max": creators_max, "min_stock": min_stock,
     }
     jobs.start_job("scrape", "选品采集（FastMoss）",
-                   lambda job: pipeline.run_scrape(request, job, params))
+                   lambda job: pipeline.run_scrape(request, job, params), key="scrape")
     return back(request, msg="采集任务已启动，浏览器窗口会弹出（如需登录 FastMoss 在窗口里操作）")
 
 
@@ -78,8 +78,11 @@ async def start_gen_scripts(request: Request, product: str | None = Form(None),
 async def start_gen_video(request: Request, product: str = Form(...),
                           script_version: int | None = Form(None),
                           image: int | None = Form(None)):
+    if jobs.is_running(f"gen-videos:{product}"):
+        return back(request, err=f"商品 {product} 已有视频任务在跑，等它结束再试")
     jobs.start_job("gen-videos", f"生成视频：商品 {product}",
-                   lambda job: pipeline.run_gen_video(request, job, product, script_version, image))
+                   lambda job: pipeline.run_gen_video(request, job, product, script_version, image),
+                   key=f"gen-videos:{product}")
     extra = f"，脚本 v{script_version}" if script_version else ""
     return back(request, msg=f"视频任务已启动（按条收费{extra}，约 3–5 分钟出片）")
 

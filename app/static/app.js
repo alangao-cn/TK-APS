@@ -33,11 +33,12 @@
     });
   });
 
-  // ---- 任务进度：每 3 秒拉一次 /api/jobs，有任务跑完时自动刷新页面 ----
+  // ---- 任务进度：自适应轮询 /api/jobs（有任务跑 3s，空闲 20s，页面在后台时暂停）----
   var box = document.getElementById("jobs-box");
   if (!box) return;
 
   var reloadArmed = false;
+  var FAST = 3000, SLOW = 20000;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -61,7 +62,8 @@
   }
 
   function tick() {
-    fetch("/api/jobs", { headers: { "Accept": "application/json" } })
+    if (document.hidden) return Promise.resolve(SLOW); // 后台标签页不打接口
+    return fetch("/api/jobs", { headers: { "Accept": "application/json" } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var jobs = data.jobs || [];
@@ -74,10 +76,10 @@
           if (running.length > 0) reloadArmed = true;
           else if (reloadArmed) window.location.reload();
         }
+        return running.length > 0 ? FAST : SLOW;
       })
-      .catch(function () { /* 服务重启等瞬间忽略 */ });
+      .catch(function () { return SLOW; });
   }
 
-  tick();
-  setInterval(tick, 3000);
+  (function loop() { tick().then(function (delay) { setTimeout(loop, delay); }); })();
 })();
