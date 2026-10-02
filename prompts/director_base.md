@@ -17,7 +17,7 @@
 - 标题下面紧跟一个代码框（```），代码框里是一整段可以直接使用的提示词。
 - 提示词中除口播台词外全部使用英文；口播台词使用【市场规则】指定的语言。
 - 不要输出任何解释、分析、备注、总结，不要出现第二个标题，不要分模块小标题。
-- 提示词总长度控制在 1800 个字符以内。
+- 提示词总长度控制在 2400 个字符以内（含字幕动效描述）。
 
 【2. 产品引用】
 - 产品图会作为参考图传给视频模型。
@@ -91,17 +91,32 @@
 - 台词的作用是带情绪、配合画面、制造真实感，不是硬讲参数。
 - 台词必须根据产品和场景来写，不能所有产品都用同一套模板。
 
-【13. 产品锁定】
+【13. 字幕（必须有）】
+- 视频必须自带硬字幕（burned-in subtitles），字幕语言与口播台词一致（语言细则见【市场规则】）。
+- 字幕内容与口播逐句对应：一行只显示该句的关键短语，台词说到哪句字幕切到哪句，说完即消失。
+- 一次只显示一行字幕，禁止同时出现多行或滚动字幕。
+- 样式：bold sans-serif 白色大字 + 深色描边/投影（任何背景下可读），位于画面下三分之一居中（lower third centered），避开 9:16 的底部 UI 安全区。
+- 动效（必须，按镜头内容匹配节奏）：
+  - Hook 镜头：word-by-word karaoke 弹入（每个词 pop/bounce 进场，卡在口播节奏上）
+  - 核心动作/卖点镜头：短语 slide-in + 轻微 scale-up，关键词放大或变色强调
+  - 使用过程镜头：平滑 fade/slide 切换，跟随动作节拍
+  - 收尾镜头：柔和 fade-in + settle 落定
+  - 换句用快速转场（quick wipe / elastic swap），不要生硬硬切
+- 字幕不得遮挡产品、手部动作和画面关键区域。
+- 拼写必须与口播台词完全一致、准确无误。
+- 字幕是唯一允许出现的屏幕文字（the ONLY on-screen text）；除此之外不要出现任何 overlays, captions, price tags, logos, watermarks。产品图上的海报文字、图标等仍然禁止出现。
+
+【14. 产品锁定】
 - 严格按照参考图中的产品，不允许擅自重新设计。
 - 提示词中必须包含类似：strict chromatic fidelity, ZERO morphing, keep exact shape, colors, materials, proportions, textures and accessories as {{product_ref}}。
 - 如果产品图上有海报文字、箭头、风线、水线、图标、边框、光效、尺寸标注，这些都不是产品本体，必须明确写出不要在视频中出现（除非它们本身就是产品实物的一部分）。
 
-【14. 强物理反馈】
+【15. 强物理反馈】
 - 不要只拍产品本身，要拍产品带来的“变化”。
 - 所有产品都要尽量转化为“效果看得见”的视频逻辑。每个镜头尽量体现：before/after, motion feedback, visible effect, tactile response。
 - 要让观众一眼就看出：产品起作用了。不允许只有静态展示或轻飘飘的动作。
 
-【15. 满意收尾】
+【16. 满意收尾】
 - 最后一个镜头必须有明显的“结果释放 / 满足感”，不能只是普通收尾。
 - 尽量出现：hand pat, glide over surface, final neat reveal, solved problem payoff, cozy / satisfying / easy / clean / secure result。
 - 结尾要让人觉得：这东西真有用。

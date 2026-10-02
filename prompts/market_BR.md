@@ -30,6 +30,11 @@
 - natural pauses "..."
 - natural sync with actions
 
+【C2. 字幕语言】
+- 字幕必须是 Brazilian Portuguese，与口播台词逐字一致，带正确的重音符号（ã/ê/ç/ó）。
+- 葡语单词普遍较长，字幕每行最多 3–4 个词，宁可拆成两段快切也不要断词换行。
+- 口语词照原样上字幕（nossa / demais / tô passada），保持真实感。
+
 【D. 场景】
 优先选择贴近巴西日常生活的场景，并结合产品用途：
 - 室内：bedroom, kitchen, small apartment living room, desk, bathroom, laundry area (área de serviço)
