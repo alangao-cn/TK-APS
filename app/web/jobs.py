@@ -100,7 +100,7 @@ class Job:
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "type": self.type, "title": self.title,
+            "id": self.id, "type": self.type, "title": self.title, "key": self.key,
             "status": self.status, "created_at": self.created_at,
             "finished_at": self.finished_at, "error": self.error,
             "log": self.log[-8:],

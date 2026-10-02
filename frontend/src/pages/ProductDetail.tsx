@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, Button, Card, Col, Descriptions, Image, Input, Popconfirm, Row, Space, Spin,
-  Tag, Timeline, Typography, message,
+  Tag, Timeline, Tooltip, Typography, message,
 } from 'antd'
+import { LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
@@ -64,6 +65,24 @@ export default function ProductDetail() {
     queryKey: ['product', id],
     queryFn: () => api<Product>(`/api/products/${id}`),
   })
+
+  // 该商品正在跑的任务（['jobs'] 与任务浮窗共用轮询缓存，任务清零时浮窗会触发全局刷新）
+  const { data: jobsData } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => api<{ running: number; jobs: any[] }>('/api/jobs'),
+  })
+  const pid = p?.product_id ?? ''
+  const runningJobs = (jobsData?.jobs ?? []).filter((j) => j.status === 'running')
+  const scriptJobRunning = runningJobs.some((j) =>
+    j.type === 'gen-scripts' && (j.key === `gen-scripts:${pid}` || j.title.includes(pid)))
+  const videoJobRunning = runningJobs.some((j) =>
+    j.type === 'gen-videos' && j.key === `gen-videos:${pid}`)
+
+  // 切换到另一个商品时清掉编辑状态（路由复用同一组件实例，state 会残留）
+  useEffect(() => {
+    setEditingScript(null)
+    setPrompt('')
+  }, [id])
 
   useEffect(() => {
     // 默认编辑最新成功脚本；页面数据刷新时保持当前编辑版本
@@ -134,9 +153,12 @@ export default function ProductDetail() {
         }
         extra={
           <Space>
-            <Button size="small" onClick={() => toggleConfirm.mutate(!p.confirmed)}>
-              {p.confirmed ? '取消确认' : '确认选品'}
-            </Button>
+            <Tooltip title="确认 = 标记这个商品要做视频；批次页的「批量生成脚本」只处理已确认的商品（防止误耗 token 的人工门槛），不影响你在这里单独生成">
+              <Button size="small" type={p.confirmed ? 'default' : 'primary'}
+                onClick={() => toggleConfirm.mutate(!p.confirmed)}>
+                {p.confirmed ? '取消确认' : '确认选品'}
+              </Button>
+            </Tooltip>
             <Link to={`/batch/${(p as any).batch_id}`}><Button size="small">← 返回批次</Button></Link>
           </Space>
         }
@@ -178,12 +200,18 @@ export default function ProductDetail() {
         title={<Space>脚本{editingScript && <Tag color={editingScript.edited ? 'gold' : 'default'}>正在编辑 v{editingScript.version}{editingScript.edited ? '（已人工修改）' : ''}</Tag>}</Space>}
         extra={
           <Space>
-            <Popconfirm title="重新生成脚本？会写新版本并消耗 token" onConfirm={() => genScript.mutate()}>
-              <Button loading={genScript.isPending}>重新生成</Button>
+            <Popconfirm
+              title={okScripts.length ? '重新生成脚本？会写新版本并消耗 token' : '生成脚本？将调用 LLM，消耗 token'}
+              onConfirm={() => genScript.mutate()}
+              disabled={scriptJobRunning}
+            >
+              <Button loading={scriptJobRunning} disabled={scriptJobRunning}>
+                {okScripts.length ? '重新生成脚本' : '生成脚本'}
+              </Button>
             </Popconfirm>
             <Button
               type="primary"
-              disabled={!editingScript || dirty}
+              disabled={!editingScript || dirty || videoJobRunning}
               title={dirty ? '先保存修改再生成视频' : ''}
               onClick={() => editingScript && genVideo.mutate(editingScript.id)}
               loading={genVideo.isPending}
@@ -193,11 +221,15 @@ export default function ProductDetail() {
           </Space>
         }
       >
-        {!okScripts.length && !p.scripts.length && (
+        {scriptJobRunning && (
+          <Alert style={{ marginBottom: 12 }} showIcon icon={<LoadingOutlined spin />}
+            message="脚本生成中…" description="任务完成后这里会自动刷新出新版本（进度也可看右下角任务浮标）" />
+        )}
+        {!okScripts.length && !p.scripts.length && !scriptJobRunning && (
           <Alert type="info" showIcon message="还没有脚本" description={
             <Space direction="vertical">
-              <span>点右上角「重新生成」为这个商品生成视频脚本（调 LLM，注意 token 消耗）。</span>
-              {!p.confirmed && <span style={{ color: '#faad14' }}>提示：该商品还没确认选品。</span>}
+              <span>点右上角「生成脚本」为这个商品生成视频脚本（调 LLM，注意 token 消耗）。</span>
+              {!p.confirmed && <span style={{ color: '#faad14' }}>提示：该商品还没确认选品（不影响单独生成）。</span>}
             </Space>
           } />
         )}
@@ -252,7 +284,12 @@ export default function ProductDetail() {
 
       {/* ---------- 视频 ---------- */}
       <Card title={`视频（${p.videos.length}）`}>
-        {!p.videos.length && (
+        {videoJobRunning && (
+          <Alert style={{ marginBottom: 12 }} showIcon icon={<LoadingOutlined spin />}
+            message="视频生成中…（约 3–5 分钟）"
+            description="按条收费；完成后这里自动刷新出视频卡片（进度也可看右下角任务浮标）" />
+        )}
+        {!p.videos.length && !videoJobRunning && (
           <Typography.Text type="secondary">
             还没有视频。编辑好脚本后点上方「用此脚本生成视频」。
           </Typography.Text>
@@ -285,8 +322,9 @@ export default function ProductDetail() {
                       <Button size="small" href={`/api/videos/${v.id}/download`}>下载</Button>
                     ) : (
                       editingScript && (
-                        <Popconfirm title="重试生成视频？按条收费" onConfirm={() => genVideo.mutate(editingScript.id)}>
-                          <Button size="small">重试</Button>
+                        <Popconfirm title="重试生成视频？按条收费" disabled={videoJobRunning}
+                          onConfirm={() => genVideo.mutate(editingScript.id)}>
+                          <Button size="small" disabled={videoJobRunning}>重试</Button>
                         </Popconfirm>
                       )
                     )}
