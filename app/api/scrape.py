@@ -8,6 +8,22 @@ from ..web import jobs, pipeline
 router = APIRouter()
 
 
+@router.get("/scrape/defaults")
+async def scrape_defaults(request: Request):
+    """采集表单的预填默认值（config.yaml 的 selection 段，改配置后表单跟着变）。"""
+    sel = request.app.state.cfg.selection
+    return {
+        "period": getattr(sel, "period", "weekly"),
+        "region": getattr(sel, "region", "BR"),
+        "categories": list(getattr(sel, "categories", [])),
+        "max_pages": int(getattr(sel, "max_pages", 5)),
+        "min_profit_cny": float(getattr(sel, "min_profit_cny", 2.0)),
+        "creators_min": int(getattr(sel, "creators_min", 30)),
+        "creators_max": int(getattr(sel, "creators_max", 2000)),
+        "min_stock": int(getattr(sel, "min_stock", 1)),
+    }
+
+
 class ScrapeParams(BaseModel):
     period: str = "weekly"
     region: str = "BR"

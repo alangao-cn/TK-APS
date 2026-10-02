@@ -21,7 +21,7 @@ const PERIODS = [
   { value: 'daily', label: '日榜' },
   { value: 'monthly', label: '月榜' },
 ]
-const CATEGORIES = ['运动与户外', '居家日用', '五金工具']
+const FALLBACK_CATEGORIES = ['运动与户外', '居家日用', '五金工具']
 
 function dayGroup(created_at: string): string {
   const d = dayjs(created_at)
@@ -34,6 +34,13 @@ function ScrapeButton() {
   const [open, setOpen] = useState(false)
   const [form] = Form.useForm()
   const qc = useQueryClient()
+
+  // 预填值从后端配置读（config.yaml 改了表单跟着变），拿到后才允许打开弹窗
+  const { data: defaults } = useQuery({
+    queryKey: ['scrape-defaults'],
+    queryFn: () => api<any>('/api/scrape/defaults'),
+    staleTime: 60_000,
+  })
 
   const start = useMutation({
     mutationFn: (v: any) => post('/api/scrape', v),
@@ -49,7 +56,7 @@ function ScrapeButton() {
 
   return (
     <>
-      <Button type="primary" onClick={() => setOpen(true)}>发起选品采集</Button>
+      <Button type="primary" disabled={!defaults} onClick={() => setOpen(true)}>发起选品采集</Button>
       <Modal
         title="采集参数"
         open={open}
@@ -65,10 +72,7 @@ function ScrapeButton() {
         <Form
           form={form}
           layout="vertical"
-          initialValues={{
-            period: 'weekly', region: 'BR', categories: CATEGORIES,
-            max_pages: 5, min_profit_cny: 2.0, creators_min: 30, creators_max: 70, min_stock: 1,
-          }}
+          initialValues={defaults}
         >
           <Row gutter={12}>
             <Col span={8}>
@@ -88,7 +92,7 @@ function ScrapeButton() {
             </Col>
           </Row>
           <Form.Item name="categories" label="类目" rules={[{ required: true, message: '至少选一个类目' }]}>
-            <Checkbox.Group options={CATEGORIES} />
+            <Checkbox.Group options={defaults?.categories?.length ? defaults.categories : FALLBACK_CATEGORIES} />
           </Form.Item>
           <Collapse
             size="small"
