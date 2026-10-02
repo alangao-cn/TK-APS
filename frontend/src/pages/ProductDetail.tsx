@@ -159,7 +159,7 @@ export default function ProductDetail() {
                 {p.confirmed ? '取消确认' : '确认选品'}
               </Button>
             </Tooltip>
-            <Link to={`/batch/${(p as any).batch_id}`}><Button size="small">← 返回批次</Button></Link>
+            <Link to={`/batch/${(p as any).batch_id}`}><Button size="small">← 返回</Button></Link>
           </Space>
         }
       >
