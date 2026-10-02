@@ -19,7 +19,8 @@ selection:
   # 筛选条件
   min_profit_cny: 2.0            # 单件利润下限（人民币）
   creators_min: 30               # 带货达人数下限（含）
-  creators_max: 70               # 带货达人数上限（含）
+  creators_max: 2000             # 上限（含）。热推榜头部商品达人普遍 400–1600，上限 2000 只排除超头部；
+                                 #   原 30–70 实测榜单数据 0 命中（头部商品没有低于 400 的），勿改回
   creators_source: related       # 用哪一列达人 数筛选：related = 关联达人（近期带货）/ total = 总关联达人
   min_stock: 1                   # 库存下限（详情页数据，补抓后过滤；库存未知时保留，人工确认时看）
   price_basis: min               # 价格是区间时取哪个值：min（保守）/ avg / max
@@ -56,10 +57,12 @@ video:
   api: vertex                    # vertex = Vertex AI 兼容接口（默认）/ native = ZenMux 原生接口
   vertex_base_url: "https://zenmux.ai/api/vertex-ai"
   native_base_url: "https://zenmux.ai/api/v1"
-  # 模型名格式为 "厂商/模型"。已从 /api/v1/models 实测确认可用：
-  #   bytedance/doubao-seedance-2.0（默认）、bytedance/doubao-seedance-2.5（更新）、alibaba/wan3.0-video、bfl/flux-3-video
+  # 模型名格式为 "厂商/模型"，以 GET /api/v1/models 返回为准。已实测：
+  #   bytedance/doubao-seedance-2.0 / 2.5：vertex、native 两条接口都可用
+  #   alibaba/wan3.0-video：只支持 native 接口（vertex 报 404 model_not_supported；
+  #     程序会自动换 native 重试，无需改 video.api）。$0.05/秒，10 秒约 $0.5
   #   注意：文档模型表里的 "volcengine/doubao-seedance-2" 实测 invalid_model，勿用
-  model: "bytedance/doubao-seedance-2.0"
+  model: "alibaba/wan3.0-video"
   duration: 10                   # 秒。Seedance 最长 10；Veo 3.1 只支持 5 或 8
   shots: 4                       # 镜头数，会传入 Prompt 模板
   ratio: "9:16"

@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v11 · 2026-10-01
+> 版本 v11.1 · 2026-10-02
 > 技术栈：**Python 3.12 后端**（FastAPI + Playwright + SQLite）+ **React 前端**（Vite + TypeScript + antd）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v11.1：**选品筛选校准**——实测热推榜头部商品关联达人普遍 400–1600（周榜单前 5 页无一条低于 416），README 原始口径"达人 30–70"在新参数表单启用后导致整批 0 通过；默认区间改为 **30–2000**（只排除超头部，当天数据 60 条→43 条通过）。另确认：`commission_rate` 显示"-"的 8 条属正常（约 1–3 成商品无佣金）；改筛选条件后**不用重爬**，可用 `apply_selection_overrides` + `export.export(raw_dir=…)` 离线重筛（enrich=False 不开浏览器，缺库存/多图，下次正常采集自动补全）；商品按 product_id 全局唯一，重复上榜自动归属最新批次
 - v11：**架构升级方案**（第 12 节）：前端重写为 React + antd SPA，Python 只做后端 JSON API；引入 **SQLite 数据库**（SQLModel）做事实源，文件退为工件存档；交互重设计为"以商品为中心的流水线"——解决三个痛点：跨页找不到刚生成的脚本/对应商品（改为商品详情页一条龙、原地刷新、"刚刚"高亮）、无时间维度（批次按日期分组、今天/昨天过滤）、无批次管理（batches 表 + 漏斗统计卡片）。Python 服务层（scraper/llm/video）零改动复用；构建产物由 FastAPI 托管，Windows 生产环境不需要 Node。**实施进度（2026-10-01）**：数据库定为 SQLite 文件（用户拍板，不用 Docker，DATABASE_URL 可迁 Postgres）；F1–F5 已完成并实测——五张表 + 文件幂等同步（现有数据已导入：1 批次 12 商品 3 脚本 3 视频）、/api 全套端点、React SPA（登录/批次工作台含采集参数弹窗/批次详情筛选勾选/商品详情一条龙/视频库 ZIP/设置热重载/全局任务浮窗+完成通知+自动刷新），浏览器实测登录→批次→商品详情全链路渲染正常；**F6 已完成**：旧 Jinja 页面删除，SPA 上线根路径 `/`（访问 http://127.0.0.1:8000 即新界面，过渡期 /app 已移除）。开发时前端 `npm run dev`（:5173 代理 /api）
 - v10.3：**换模型踩坑修复**——vertex 与 native 两条通道各自只支持一部分模型：实测 `alibaba/wan3.0-video` 被 vertex 通道拒绝（404 model_not_supported，"not supported by Veo API"）。现在提交时识别"模型不支持"错误（`errors.ModelNotSupported`，匹配 404 / model_not_supported / invalid_model 等），**自动切换另一条通道重试**，任务档案记录实际使用的 api；两条都不行才报错，并提示以 `GET /api/v1/models` 为准。wan3.0 走 native 接口（官方 curl 示例确认），$0.05/秒（10 秒约 $0.5）；`bfl/flux-3-video` 预计同样只支持某一条通道，切模型时程序会自动试。已用 MockTransport 做了三场景零成本测试：vertex 拒绝自动切 native 出片、双通道都拒绝时汇总报错、seedance 原路径回归
 - v10.2：修复**任务自拦截 bug**——防重复检查在任务启动后才执行，把任务自己当成了"已在跑的旧任务"，导致生成视频/采集任务一提交就报"已有任务在跑"失败（原商品匹配用标题子串，还会误伤 ID 前缀相同的商品）。改为 Job 带 `key` 精确匹配 + 检查排除自身 + 路由层先拦（不建任务直接提示）。`/api/jobs` 轮询自适应：有任务 3s、空闲 20s、页面后台暂停
