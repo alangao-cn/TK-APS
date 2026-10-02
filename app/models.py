@@ -64,6 +64,7 @@ class Script(SQLModel, table=True):
     model: str = ""
     video_prompt: str = ""
     hook: str = ""
+    duration: int = 0                                 # AI 决定的总秒数（<seconds> 标签；0=未给，用配置回退）
     edited: bool = False
     prompt_hash: str = ""
     tokens_in: int = 0

@@ -23,7 +23,7 @@ const PERIODS = [
 ]
 const FALLBACK_CATEGORIES = ['运动与户外', '居家日用', '五金工具']
 
-function dayGroup(created_at: string): string {
+export function dayGroup(created_at: string): string {
   const d = dayjs(created_at)
   if (d.isSame(dayjs(), 'day')) return '今天'
   if (d.isSame(dayjs().subtract(1, 'day'), 'day')) return '昨天'

@@ -22,6 +22,8 @@ def load_instructions(cfg, region: str, recent_hooks: list[str] | None = None) -
 
     replacements = {
         "{{seconds}}": str(cfg.video.duration),
+        "{{duration_min}}": str(int(getattr(cfg.video, "duration_min", 8))),
+        "{{duration_max}}": str(int(getattr(cfg.video, "duration_max", 12))),
         "{{shots}}": str(cfg.video.shots),
         "{{ratio}}": cfg.video.ratio,
         "{{product_ref}}": cfg.video.product_ref,

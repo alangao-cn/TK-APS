@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Card, Col, Descriptions, Image, Input, Popconfirm, Row, Space, Spin,
-  Tag, Timeline, Tooltip, Typography, message,
+  Alert, Button, Card, Col, Descriptions, Form, Image, Input, Modal, Popconfirm, Row,
+  Select, Space, Spin, Tag, Timeline, Tooltip, Typography, message,
 } from 'antd'
 import { LoadingOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -18,6 +18,7 @@ type ScriptRow = {
   video_prompt: string
   hook: string
   edited: boolean
+  duration: number
   tokens_in: number
   tokens_out: number
   created_at: string
@@ -31,6 +32,7 @@ type VideoRow = {
   api: string
   error: string
   size_mb: number
+  duration: number
   has_file: boolean
   created_at: string
 }
@@ -60,6 +62,11 @@ export default function ProductDetail() {
   const qc = useQueryClient()
   const [editingScript, setEditingScript] = useState<ScriptRow | null>(null)
   const [prompt, setPrompt] = useState('')
+  const [newerVersion, setNewerVersion] = useState<number | null>(null)
+  const [videoModal, setVideoModal] = useState<{ open: boolean; scriptId: number | null }>({
+    open: false, scriptId: null,
+  })
+  const [videoForm] = Form.useForm()
 
   const { data: p, isLoading } = useQuery({
     queryKey: ['product', id],
@@ -82,18 +89,38 @@ export default function ProductDetail() {
   useEffect(() => {
     setEditingScript(null)
     setPrompt('')
+    setNewerVersion(null)
   }, [id])
 
   useEffect(() => {
-    // 默认编辑最新成功脚本；页面数据刷新时保持当前编辑版本
-    if (!editingScript && p?.scripts?.length) {
-      const latest = p.scripts.find((s) => s.status === 'ok')
-      if (latest) {
-        setEditingScript(latest)
-        setPrompt(latest.video_prompt)
-      }
+    // 编辑版本跟随脚本数据：
+    // - 没在编辑 → 默认最新成功版本
+    // - 出现了更新的版本且当前没有未保存修改（如刚重新生成完）→ 自动切到最新
+    // - 有未保存修改 → 保留当前编辑，提示有新版本可切换
+    if (!p?.scripts?.length) { setNewerVersion(null); return }
+    const latest = p.scripts.filter((s) => s.status === 'ok')
+      .sort((a, b) => b.version - a.version)[0]
+    if (!latest) { setNewerVersion(null); return }
+    if (!editingScript) {
+      setEditingScript(latest)
+      setPrompt(latest.video_prompt)
+      setNewerVersion(null)
+      return
     }
-  }, [p, editingScript])
+    const isDirty = prompt !== editingScript.video_prompt
+    if (editingScript.version < latest.version && isDirty) {
+      setNewerVersion(latest.version)
+      return
+    }
+    if (editingScript.version !== latest.version) {
+      setEditingScript(latest)
+      setPrompt(latest.video_prompt)
+      setNewerVersion(null)
+      return
+    }
+    setNewerVersion(null)
+    if (editingScript !== latest) setEditingScript(latest)  // 同版本刷新元信息
+  }, [p])
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['product', id] })
@@ -121,13 +148,37 @@ export default function ProductDetail() {
   })
 
   const genVideo = useMutation({
-    mutationFn: (scriptId: number) => post(`/api/scripts/${scriptId}/gen-video`),
+    mutationFn: (v: { scriptId: number; model?: string; resolution?: string }) =>
+      post(`/api/scripts/${v.scriptId}/gen-video`, { model: v.model, resolution: v.resolution }),
     onSuccess: () => {
-      message.success('视频生成已启动（按条收费，约 3–5 分钟出片）')
+      message.success('视频生成已启动（按条收费，出片约 1–5 分钟）')
+      setVideoModal({ open: false, scriptId: null })
       setTimeout(() => qc.invalidateQueries({ queryKey: ['jobs'] }), 500)
     },
     onError: (e: any) => message.error(e.message),
   })
+
+  // 生成视频弹窗选项（模型目录 + 默认值），来自 config.yaml
+  const { data: videoOptions } = useQuery({
+    queryKey: ['video-options'],
+    queryFn: () => api<any>('/api/video/options'),
+    staleTime: 60_000,
+  })
+  const modelWatch = Form.useWatch('model', videoForm)
+  const currentSpec = (videoOptions?.models ?? []).find((m: any) => m.name === modelWatch)
+
+  // 选项加载后填默认模型/分辨率；切换模型时若分辨率不被支持则重置回默认
+  useEffect(() => {
+    if (!videoOptions) return
+    if (!videoForm.getFieldValue('model')) {
+      videoForm.setFieldsValue({ model: videoOptions.default_model })
+    }
+    const spec = (videoOptions.models ?? []).find((m: any) => m.name === modelWatch)
+    const res = videoForm.getFieldValue('resolution')
+    if (!res || (spec && !spec.resolutions?.includes(res))) {
+      videoForm.setFieldsValue({ resolution: videoOptions.default_resolution })
+    }
+  }, [videoOptions, modelWatch])
 
   const toggleConfirm = useMutation({
     mutationFn: (confirmed: boolean) => patch(`/api/products/${id}/confirmed`, { confirmed }),
@@ -197,7 +248,26 @@ export default function ProductDetail() {
 
       {/* ---------- 脚本 ---------- */}
       <Card
-        title={<Space>脚本{editingScript && <Tag color={editingScript.edited ? 'gold' : 'default'}>正在编辑 v{editingScript.version}{editingScript.edited ? '（已人工修改）' : ''}</Tag>}</Space>}
+        title={
+          <Space wrap>
+            脚本
+            {editingScript && (
+              <Tag color={editingScript.edited ? 'gold' : 'default'}>
+                编辑器载入 v{editingScript.version}{editingScript.edited ? '（已人工修改）' : ''}
+              </Tag>
+            )}
+            {editingScript?.duration ? <Tag color="cyan">{editingScript.duration}s</Tag> : null}
+            {newerVersion !== null && (
+              <Tag color="blue" style={{ cursor: 'pointer' }}
+                onClick={() => {
+                  const v = p.scripts.find((s) => s.version === newerVersion)
+                  if (v) { setEditingScript(v); setPrompt(v.video_prompt); setNewerVersion(null) }
+                }}>
+                有新版本 v{newerVersion}，点击切换（当前编辑未保存）
+              </Tag>
+            )}
+          </Space>
+        }
         extra={
           <Space>
             <Popconfirm
@@ -213,8 +283,7 @@ export default function ProductDetail() {
               type="primary"
               disabled={!editingScript || dirty || videoJobRunning}
               title={dirty ? '先保存修改再生成视频' : ''}
-              onClick={() => editingScript && genVideo.mutate(editingScript.id)}
-              loading={genVideo.isPending}
+              onClick={() => editingScript && setVideoModal({ open: true, scriptId: editingScript.id })}
             >
               用此脚本生成视频
             </Button>
@@ -255,7 +324,8 @@ export default function ProductDetail() {
                 {dirty && <Typography.Text type="warning">有未保存的修改</Typography.Text>}
               </Space>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                模型 {editingScript.model} · tokens 入 {editingScript.tokens_in} / 出 {editingScript.tokens_out}
+                模型 {editingScript.model} · 时长 {editingScript.duration ? `${editingScript.duration}s` : '未定'}
+                · tokens 入 {editingScript.tokens_in} / 出 {editingScript.tokens_out}
                 {editingScript.hook && <> · Hook: {editingScript.hook.slice(0, 60)}</>}
               </Typography.Text>
             </div>
@@ -268,8 +338,10 @@ export default function ProductDetail() {
                     children: (
                       <a onClick={() => { setEditingScript(s); setPrompt(s.video_prompt) }}>
                         v{s.version} · {dayjs(s.created_at).format('MM-DD HH:mm')}
+                        {s.version === Math.max(...okScripts.map((x) => x.version))
+                          && <Tag color="green" style={{ marginLeft: 8 }}>最新</Tag>}
                         {s.edited && <Tag color="gold" style={{ marginLeft: 8 }}>人工修改</Tag>}
-                        {s.id === editingScript.id && <Tag color="blue" style={{ marginLeft: 8 }}>编辑中</Tag>}
+                        {s.id === editingScript.id && <Tag color="blue" style={{ marginLeft: 8 }}>编辑器载入</Tag>}
                       </a>
                     ),
                   }))}
@@ -311,6 +383,7 @@ export default function ProductDetail() {
                 <div style={{ marginTop: 8 }}>
                   <Space size={4} wrap>
                     <Tag color={v.status === 'succeeded' ? 'green' : 'red'}>v{v.version} · {v.status}</Tag>
+                    {v.duration > 0 && <Tag color="cyan">{v.duration}s</Tag>}
                     {v.size_mb > 0 && <Tag>{v.size_mb} MB</Tag>}
                     <Tag>{v.model?.split('/')?.pop()}</Tag>
                   </Space>
@@ -321,12 +394,13 @@ export default function ProductDetail() {
                     {v.has_file ? (
                       <Button size="small" href={`/api/videos/${v.id}/download`}>下载</Button>
                     ) : (
-                      editingScript && (
-                        <Popconfirm title="重试生成视频？按条收费" disabled={videoJobRunning}
-                          onConfirm={() => genVideo.mutate(editingScript.id)}>
-                          <Button size="small" disabled={videoJobRunning}>重试</Button>
-                        </Popconfirm>
-                      )
+                      (() => {
+                        const s = p.scripts.find((x) => x.version === v.script_version && x.status === 'ok')
+                        return s ? (
+                          <Button size="small" disabled={videoJobRunning}
+                            onClick={() => setVideoModal({ open: true, scriptId: s.id })}>重试</Button>
+                        ) : null
+                      })()
                     )}
                   </div>
                 </div>
@@ -335,6 +409,62 @@ export default function ProductDetail() {
           ))}
         </Row>
       </Card>
+
+      {/* ---------- 生成视频弹窗：选模型 / 分辨率（脚本时长只读展示） ---------- */}
+      <Modal
+        title="生成视频"
+        open={videoModal.open}
+        onCancel={() => setVideoModal({ open: false, scriptId: null })}
+        onOk={() => videoForm.validateFields().then((v) =>
+          genVideo.mutate({ scriptId: videoModal.scriptId!, model: v.model, resolution: v.resolution }))}
+        okText="开始生成（按条收费）"
+        cancelText="取消"
+        confirmLoading={genVideo.isPending}
+      >
+        {(() => {
+          const s = p.scripts.find((x) => x.id === videoModal.scriptId)
+          const scriptDur = s?.duration || 0
+          const shown = scriptDur || videoOptions?.default_duration || 0
+          const lo = currentSpec?.duration?.[0], hi = currentSpec?.duration?.[1]
+          const eff = lo && hi ? Math.max(lo, Math.min(hi, shown)) : shown
+          return (
+            <Descriptions size="small" column={1} style={{ marginBottom: 12 }} bordered>
+              <Descriptions.Item label="脚本">
+                v{s?.version}（{s?.model || '—'}）
+              </Descriptions.Item>
+              <Descriptions.Item label="脚本时长">
+                <Tag color={scriptDur ? 'cyan' : 'default'}>
+                  {scriptDur ? `${scriptDur}s` : `未定，按默认 ${shown}s`}
+                </Tag>
+                {scriptDur && eff !== shown && (
+                  <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                    超出所选模型 {lo}–{hi}s 范围，将按 {eff}s 提交
+                  </Typography.Text>
+                )}
+              </Descriptions.Item>
+            </Descriptions>
+          )
+        })()}
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          时长按脚本里 AI 定的秒数自动提交，超出所选模型允许范围时按边界值提交。
+        </Typography.Paragraph>
+        <Form form={videoForm} layout="vertical">
+          <Form.Item name="model" label="模型" rules={[{ required: true, message: '选择模型' }]}>
+            <Select
+              options={(videoOptions?.models ?? []).map((m: any) => ({
+                value: m.name,
+                label: `${m.name}（${m.duration?.[0]}–${m.duration?.[1]}s）`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="resolution" label="分辨率" rules={[{ required: true, message: '选择分辨率' }]}>
+            <Select
+              options={(currentSpec?.resolutions ?? ['480p', '720p', '1080p']).map(
+                (r: string) => ({ value: r, label: r }))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Space>
   )
 }

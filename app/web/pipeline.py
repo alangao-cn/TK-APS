@@ -108,7 +108,8 @@ async def run_gen_scripts(request, job, product_id: str | None,
 
 
 async def run_gen_video(request, job, product_id: str, script_version: int | None = None,
-                        image_index: int | None = None) -> None:
+                        image_index: int | None = None, model: str | None = None,
+                        resolution: str | None = None) -> None:
     from app.video import service as video_service
 
     cfg = _cfg(request.app.state)
@@ -117,10 +118,12 @@ async def run_gen_video(request, job, product_id: str, script_version: int | Non
            if j is not job and j.key == f"gen-videos:{product_id}"]
     if dup:
         raise RuntimeError(f"商品 {product_id} 已有视频任务在跑，等它结束再试")
-    job.log_line(f"商品 {product_id}（模型 {cfg.video.model}，{cfg.video.api} 接口）"
+    job.log_line(f"商品 {product_id}（模型 {model or cfg.video.model} / {resolution or cfg.video.resolution}，"
+                 f"{cfg.video.api} 接口）"
                  + (f"，指定脚本 v{script_version}" if script_version else "")
                  + (f"，指定第 {image_index} 张图" if image_index is not None else ""))
-    out = await video_service.generate_for_script(cfg, product_id, script_version, image_index)
+    out = await video_service.generate_for_script(cfg, product_id, script_version, image_index,
+                                                  model, resolution)
     if not out:
         raise RuntimeError("视频生成未成功（详见任务日志 / data/videos/ 里的 video_v*.json）")
     job.log_line(f"完成 → {out}")

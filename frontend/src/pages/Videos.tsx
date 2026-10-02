@@ -6,11 +6,15 @@ import dayjs from 'dayjs'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { api, downloadBlob } from '../api/client'
+import { dayGroup } from './Batches'
 
 type VideoRow = {
   id: number
   product_id: string
+  product_row_id: number | null
   product_title: string
+  tiktok_url: string
+  fastmoss_url: string
   batch_id: number
   version: number
   status: string
@@ -40,6 +44,15 @@ export default function Videos() {
   const videos = (data?.videos ?? []).filter((v) => v.has_file || status !== 'succeeded')
   const pickable = videos.filter((v) => v.has_file).map((v) => v.id)
   const allPicked = picked.length > 0 && picked.length === pickable.length
+
+  // 按日期分组（新→旧），组内已按时间倒序
+  const groups: { name: string; items: VideoRow[] }[] = []
+  for (const v of videos) {
+    const name = dayGroup(v.created_at)
+    const g = groups.find((x) => x.name === name)
+    if (g) g.items.push(v)
+    else groups.push({ name, items: [v] })
+  }
 
   const zip = async () => {
     if (!picked.length) return message.warning('先勾选要打包的视频')
@@ -86,47 +99,67 @@ export default function Videos() {
 
       {!videos.length && !isLoading && <Empty description="没有匹配的视频" />}
 
-      <Row gutter={[16, 16]}>
-        {videos.map((v) => (
-          <Col key={v.id} xs={24} sm={12} md={8} lg={6}>
-            <Card size="small">
-              {v.has_file ? (
-                <video controls preload="metadata" src={`/api/videos/${v.id}/file`}
-                  style={{ width: '100%', aspectRatio: '9/16', maxHeight: 380, background: '#000', borderRadius: 6 }} />
-              ) : (
-                <div style={{ aspectRatio: '9/16', maxHeight: 380, borderRadius: 6, background: '#fff2f0',
-                  border: '1px dashed #ffccc7', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: 12, textAlign: 'center', fontSize: 12, color: '#cf1322', overflow: 'auto' }}>
-                  {v.error || '未生成视频文件'}
-                </div>
-              )}
-              <div style={{ marginTop: 8 }}>
-                <Space size={4} wrap>
-                  {v.has_file && (
-                    <Checkbox
-                      checked={picked.includes(v.id)}
-                      onChange={(e) => setPicked(e.target.checked ? [...picked, v.id] : picked.filter((x) => x !== v.id))}
-                    />
+      {groups.map((g) => (
+        <div key={g.name}>
+          <Typography.Title level={5} type="secondary" style={{ margin: '0 0 8px' }}>
+            {g.name} · {g.items.length} 个
+          </Typography.Title>
+          <Row gutter={[16, 16]}>
+            {g.items.map((v) => (
+              <Col key={v.id} xs={24} sm={12} md={8} lg={6}>
+                <Card size="small">
+                  {v.has_file ? (
+                    <video controls preload="metadata" src={`/api/videos/${v.id}/file`}
+                      style={{ width: '100%', aspectRatio: '9/16', maxHeight: 380, background: '#000', borderRadius: 6 }} />
+                  ) : (
+                    <div style={{ aspectRatio: '9/16', maxHeight: 380, borderRadius: 6, background: '#fff2f0',
+                      border: '1px dashed #ffccc7', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 12, textAlign: 'center', fontSize: 12, color: '#cf1322', overflow: 'auto' }}>
+                      {v.error || '未生成视频文件'}
+                    </div>
                   )}
-                  <Tag color={v.status === 'succeeded' ? 'green' : 'red'}>v{v.version} · {v.status}</Tag>
-                  {v.size_mb > 0 && <Tag>{v.size_mb} MB</Tag>}
-                </Space>
-                <Typography.Paragraph ellipsis={{ rows: 2 }} style={{ marginBottom: 4, fontSize: 13 }}>
-                  <Link to={`/product/${v.product_id}`}>{v.product_title}</Link>
-                </Typography.Paragraph>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {dayjs(v.created_at).format('YYYY-MM-DD HH:mm')} · {v.size_mb} MB
-                </Typography.Text>
-                <div style={{ marginTop: 6 }}>
-                  {v.has_file
-                    ? <Button size="small" href={`/api/videos/${v.id}/download`}>下载</Button>
-                    : <Tag color="red">在商品详情里重试</Tag>}
-                </div>
-              </div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
+                  <div style={{ marginTop: 8 }}>
+                    <Space size={4} wrap>
+                      {v.has_file && (
+                        <Checkbox
+                          checked={picked.includes(v.id)}
+                          onChange={(e) => setPicked(e.target.checked ? [...picked, v.id] : picked.filter((x) => x !== v.id))}
+                        />
+                      )}
+                      <Tag color={v.status === 'succeeded' ? 'green' : 'red'}>v{v.version} · {v.status}</Tag>
+                      {v.size_mb > 0 && <Tag>{v.size_mb} MB</Tag>}
+                    </Space>
+                    <Typography.Paragraph ellipsis={{ rows: 2 }} style={{ marginBottom: 4, fontSize: 13 }}>
+                      {v.product_row_id
+                        ? <Link to={`/product/${v.product_row_id}`}>{v.product_title}</Link>
+                        : v.product_title}
+                    </Typography.Paragraph>
+                    <div style={{ fontSize: 12 }}>
+                      <Typography.Text copyable code style={{ fontSize: 11 }}>{v.product_id}</Typography.Text>
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 2 }}>
+                      {v.tiktok_url
+                        ? <a href={v.tiktok_url} target="_blank" rel="noreferrer">TikTok 店铺 ↗</a>
+                        : <Typography.Text type="secondary">无 TikTok 链接</Typography.Text>}
+                      {v.fastmoss_url && <> · <a href={v.fastmoss_url} target="_blank" rel="noreferrer">FastMoss ↗</a></>}
+                    </div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {dayjs(v.created_at).format('HH:mm')} · {v.model?.split('/')?.pop()}
+                    </Typography.Text>
+                    <div style={{ marginTop: 6 }}>
+                      {v.has_file
+                        ? <Button size="small" href={`/api/videos/${v.id}/download`}>下载</Button>
+                        : v.product_row_id
+                          ? <Link to={`/product/${v.product_row_id}`}><Button size="small">去重试</Button></Link>
+                          : null}
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </div>
+      ))}
     </Space>
   )
 }

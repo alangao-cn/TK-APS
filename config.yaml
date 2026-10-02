@@ -39,12 +39,12 @@ selection:
 # ---------- 模块二：视频脚本（LLM） ----------
 llm:
   base_url: "https://zenmux.ai/api/v1"
-  model: "openai/gpt-5"
+  model: "gpt-5.6-luna"
   api: responses                 # responses（ZenMux 示例的写法）/ chat（chat.completions，备用）
   reasoning_effort: medium       # 推理模型可用：minimal / low / medium / high；不支持的模型设为 null
   max_output_tokens: 4000
   send_image: true               # 是否把商品主图传给模型；模型不支持图片时改为 false
-  max_images: 1                  # 每个商品最多传几张图（多图更准但更耗 token，测试期用 1）
+  max_images: 3                  # 每个商品最多传几张图（多图让模型更了解产品，脚本更贴产品；约 +1K token/张）
   timeout_seconds: 180
   max_retries: 2
   prompts:
@@ -54,19 +54,34 @@ llm:
 
 # ---------- 模块三：视频生成（ZenMux） ----------
 video:
-  api: vertex                    # vertex = Vertex AI 兼容接口（默认）/ native = ZenMux 原生接口
+  api: vertex                    # vertex = Vertex AI 兼容接口 / native = ZenMux 原生接口
+                                 #   模型在当前通道不支持时（404 model_not_supported）自动换另一条，一般不用管
   vertex_base_url: "https://zenmux.ai/api/vertex-ai"
   native_base_url: "https://zenmux.ai/api/v1"
-  # 模型名格式为 "厂商/模型"，以 GET /api/v1/models 返回为准。已实测：
-  #   bytedance/doubao-seedance-2.0 / 2.5：vertex、native 两条接口都可用
-  #   alibaba/wan3.0-video：只支持 native 接口（vertex 报 404 model_not_supported；
-  #     程序会自动换 native 重试，无需改 video.api）。$0.05/秒，10 秒约 $0.5
-  #   注意：文档模型表里的 "volcengine/doubao-seedance-2" 实测 invalid_model，勿用
-  model: "alibaba/wan3.0-video"
-  duration: 10                   # 秒。Seedance 最长 10；Veo 3.1 只支持 5 或 8
-  shots: 4                       # 镜头数，会传入 Prompt 模板
+
+  # 可用模型目录（生成视频弹窗的选项；duration 是该模型允许的秒数范围，程序用它钳制脚本时长）
+  models:
+    - name: "alibaba/wan3.0-video-prime"      # 默认。2–30s
+      duration: [2, 30]
+      resolutions: ["480p", "720p", "1080p"]
+    - name: "alibaba/wan3.0-video"            # 2–30s，$0.05/s
+      duration: [2, 30]
+      resolutions: ["480p", "720p", "1080p"]
+    - name: "bytedance/doubao-seedance-2.0"   # 4–15s（文档里的 "volcengine/doubao-seedance-2" 实测 invalid_model，勿用）
+      duration: [4, 15]
+      resolutions: ["480p", "720p", "1080p"]
+    - name: "bytedance/doubao-seedance-2.5"   # 4–30s
+      duration: [4, 30]
+      resolutions: ["480p", "720p", "1080p"]
+  model: "alibaba/wan3.0-video-prime"         # 默认模型（弹窗预选）
+  resolution: "720p"             # 默认分辨率（弹窗预选）
+
+  # 脚本时长：由写脚本的 AI 在这个范围内决定（输出 <seconds>N</seconds>），生成视频时按脚本时长提交
+  duration_min: 10               # 强制下限
+  duration_max: 25               # 强制上限（最终还会被所选模型的范围进一步钳制）
+  duration: 10                   # 旧脚本无 <seconds> 标签时的回退值
+  shots: 4                       # 基准镜头数（实际由 AI 随时长在 4–6 之间调整）
   ratio: "9:16"
-  resolution: "720p"
   generate_audio: true           # 带口播
   image_role: reference_image    # 商品图用法：reference_image（参考图）/ first_frame（首帧）/ none（不传图）
   max_image_attempts: 3          # 参考图被审核拦截（如服装图含真人）时，最多自动换几张图重试

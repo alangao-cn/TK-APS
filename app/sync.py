@@ -131,6 +131,7 @@ def _sync_scripts(cfg, s: Session) -> int:
                 row.edited = bool(rec.get("edited"))
             row.status = rec.get("status", "ok") or "ok"
             row.model = rec.get("model", "") or ""
+            row.duration = int(rec.get("duration") or 0)
             row.prompt_hash = rec.get("prompt_hash", "") or ""
             row.tokens_in = int(usage.get("input_tokens") or 0)
             row.tokens_out = int(usage.get("output_tokens") or 0)

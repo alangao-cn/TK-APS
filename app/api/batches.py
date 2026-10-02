@@ -66,6 +66,7 @@ def _script_view(r: models.Script) -> dict:
     return {
         "id": r.id, "product_id": r.product_id, "version": r.version, "status": r.status,
         "model": r.model, "video_prompt": r.video_prompt, "hook": r.hook, "edited": r.edited,
+        "duration": r.duration,
         "tokens_in": r.tokens_in, "tokens_out": r.tokens_out,
         "created_at": r.created_at, "updated_at": r.updated_at,
     }
@@ -73,10 +74,15 @@ def _script_view(r: models.Script) -> dict:
 
 def _video_view(r: models.Video) -> dict:
     has_file = bool(r.local_path) and Path(r.local_path).exists()
+    try:
+        duration = int(json.loads(r.params_json or "{}").get("duration") or 0)
+    except Exception:
+        duration = 0
     return {
         "id": r.id, "product_id": r.product_id, "version": r.version,
         "script_version": r.script_version, "status": r.status, "model": r.model,
         "api": r.api, "error": r.error, "size_mb": r.size_mb, "has_file": has_file,
+        "duration": duration,
         "created_at": r.created_at, "finished_at": r.finished_at,
     }
 

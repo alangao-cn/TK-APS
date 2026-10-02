@@ -123,6 +123,12 @@ async def generate_for_products(cfg, products: list[dict], region: str | None = 
             print(f"[脚本] {pid} 无法提取 [Video Prompt]，原始输出已存 {out}")
             continue
 
+        # 总时长由模型在 <seconds>N</seconds> 里给出，钳制到配置范围（生成视频时按它提交）
+        duration = parser.extract_duration(
+            result["output_text"],
+            lo=int(getattr(cfg.video, "duration_min", 8)),
+            hi=int(getattr(cfg.video, "duration_max", 12)))
+
         record = {
             "product_id": pid,
             "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -134,6 +140,7 @@ async def generate_for_products(cfg, products: list[dict], region: str | None = 
             "status": "ok",
             "product_brief": brief,
             "video_prompt": video_prompt,
+            "duration": duration,          # None = 模型没给标签，生成视频时用配置回退值
             "hook": parser.extract_hook(video_prompt),
             "raw_output": result["output_text"],
             "usage": result["usage"],

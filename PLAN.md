@@ -1,11 +1,12 @@
 # TK_APS 项目方案：自动化选品 + AI 视频素材生成
 
-> 版本 v11.1 · 2026-10-02
+> 版本 v11.2 · 2026-10-02
 > 技术栈：**Python 3.12 后端**（FastAPI + Playwright + SQLite）+ **React 前端**（Vite + TypeScript + antd）
 > 开发测试：本地 Mac；部署：**先部署到一台 Windows 机器**（以后可迁 Linux，代码不用改）
 
 ## 变更记录
 
+- v11.2：**脚本时长 AI 决定 + 生成视频弹窗选模型/分辨率**。①模型目录进配置（wan3.0-prime 2–30s 默认、wan3.0 2–30s、seedance-2.0 4–15s、seedance-2.5 4–30s，均 480p/720p/1080p）；②写脚本 Prompt 强制总时长落在 `duration_min`–`duration_max`（10–25s）内，模型在 [Video Prompt] 上方输出 `<seconds>N</seconds>`，解析器提取并从提示词中剥离，双向越界钳制，缺标签回退 `video.duration`（旧脚本兼容）；③「用此脚本生成视频」改为弹窗：选模型/分辨率（默认 wan3.0-video-prime / 720p），单次覆盖不污染全局配置，脚本时长再按所选模型范围钳制（如 25s 脚本配 seedance-2.0 自动按 15s 提交）；④Script 表加 duration 列（SQLite 轻量迁移），脚本/视频卡片显示时长
 - v11.1：**选品筛选校准**——实测热推榜头部商品关联达人普遍 400–1600（周榜单前 5 页无一条低于 416），README 原始口径"达人 30–70"在新参数表单启用后导致整批 0 通过；默认区间改为 **30–2000**（只排除超头部，当天数据 60 条→43 条通过）。另确认：`commission_rate` 显示"-"的 8 条属正常（约 1–3 成商品无佣金）；改筛选条件后**不用重爬**，可用 `apply_selection_overrides` + `export.export(raw_dir=…)` 离线重筛（enrich=False 不开浏览器，缺库存/多图，下次正常采集自动补全）；商品按 product_id 全局唯一，重复上榜自动归属最新批次
 - v11：**架构升级方案**（第 12 节）：前端重写为 React + antd SPA，Python 只做后端 JSON API；引入 **SQLite 数据库**（SQLModel）做事实源，文件退为工件存档；交互重设计为"以商品为中心的流水线"——解决三个痛点：跨页找不到刚生成的脚本/对应商品（改为商品详情页一条龙、原地刷新、"刚刚"高亮）、无时间维度（批次按日期分组、今天/昨天过滤）、无批次管理（batches 表 + 漏斗统计卡片）。Python 服务层（scraper/llm/video）零改动复用；构建产物由 FastAPI 托管，Windows 生产环境不需要 Node。**实施进度（2026-10-01）**：数据库定为 SQLite 文件（用户拍板，不用 Docker，DATABASE_URL 可迁 Postgres）；F1–F5 已完成并实测——五张表 + 文件幂等同步（现有数据已导入：1 批次 12 商品 3 脚本 3 视频）、/api 全套端点、React SPA（登录/批次工作台含采集参数弹窗/批次详情筛选勾选/商品详情一条龙/视频库 ZIP/设置热重载/全局任务浮窗+完成通知+自动刷新），浏览器实测登录→批次→商品详情全链路渲染正常；**F6 已完成**：旧 Jinja 页面删除，SPA 上线根路径 `/`（访问 http://127.0.0.1:8000 即新界面，过渡期 /app 已移除）。开发时前端 `npm run dev`（:5173 代理 /api）
 - v10.3：**换模型踩坑修复**——vertex 与 native 两条通道各自只支持一部分模型：实测 `alibaba/wan3.0-video` 被 vertex 通道拒绝（404 model_not_supported，"not supported by Veo API"）。现在提交时识别"模型不支持"错误（`errors.ModelNotSupported`，匹配 404 / model_not_supported / invalid_model 等），**自动切换另一条通道重试**，任务档案记录实际使用的 api；两条都不行才报错，并提示以 `GET /api/v1/models` 为准。wan3.0 走 native 接口（官方 curl 示例确认），$0.05/秒（10 秒约 $0.5）；`bfl/flux-3-video` 预计同样只支持某一条通道，切模型时程序会自动试。已用 MockTransport 做了三场景零成本测试：vertex 拒绝自动切 native 出片、双通道都拒绝时汇总报错、seedance 原路径回归
@@ -48,6 +49,8 @@
 - 网络：Mac 需要能访问 `fastmoss.com`（国内网络可直连）和 `zenmux.ai`；如果需要代理，可以在 `.env` 里配置 `HTTPS_PROXY`
 
 ### 1.1 部署阶段：先部署到 Windows（已确定）
+
+> **完整步骤见 [deploy/WINDOWS.md](deploy/WINDOWS.md)（Windows 部署与维护手册）**——安装、首次登录 FastMoss、开机自启、备份、常见问题排查、升级流程都在里面。以下为要点摘录。
 
 **先部署到一台常开的 Windows 机器**（普通电脑或 Windows 服务器都行）。代码和 Mac 上完全一样，只多部署这一层：
 

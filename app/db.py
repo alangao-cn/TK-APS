@@ -24,7 +24,24 @@ def make_engine(cfg):
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
     engine = create_engine(url, echo=False, connect_args=connect_args)
     SQLModel.metadata.create_all(engine)
+    _ensure_columns(engine)
     return engine
+
+
+def _ensure_columns(engine) -> None:
+    """SQLite 轻量迁移：create_all 不会改已存在的表，新列在这里补（幂等）。"""
+    from sqlalchemy import text
+
+    additions = {"script": [("duration", "INTEGER DEFAULT 0")]}
+    with engine.begin() as conn:
+        for table, cols in additions.items():
+            try:
+                existing = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))}
+            except Exception:
+                continue
+            for col, ddl in cols:
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
 
 
 def session_factory(engine):

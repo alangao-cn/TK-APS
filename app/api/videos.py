@@ -30,14 +30,18 @@ async def list_videos(request: Request, batch_id: int | None = None,
         stmt = select(models.Video).order_by(models.Video.created_at.desc(),
                                              models.Video.version.desc())
         rows = s.exec(stmt).all()
-        titles = {p.product_id: (p.title, p.batch_id)
-                  for p in s.exec(select(models.Product)).all()}
+        info = {p.product_id: (p.title, p.batch_id, p.tiktok_url, p.fastmoss_url, p.id)
+                for p in s.exec(select(models.Product)).all()}
         out = []
         for r in rows:
             view = _video_view(r)
-            title, bid = titles.get(r.product_id, (r.product_id, 0))
+            title, bid, tk_url, fm_url, row_id = info.get(
+                r.product_id, (r.product_id, 0, "", "", None))
             view["product_title"] = title
             view["batch_id"] = bid
+            view["product_row_id"] = row_id
+            view["tiktok_url"] = tk_url
+            view["fastmoss_url"] = fm_url
             if batch_id and bid != batch_id:
                 continue
             if status and r.status != status:

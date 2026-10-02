@@ -84,11 +84,55 @@ def _auth_header() -> str:
     return f"Bearer {os.environ.get('ZENMUX_API_KEY', '')}"
 
 
+def _effective_cfg(cfg, model: str | None, resolution: str | None, duration: int | None = None):
+    """单次任务覆盖模型/分辨率/时长（网页弹窗选择 + 脚本时长），不改动全局配置对象。
+
+    时长必须走这里：两个客户端的 payload 都从 cfg.video.duration 读值，
+    只改任务档案不改 cfg 会导致"档案记 12s、实际提交 10s"的不一致。
+    """
+    if not model and not resolution and duration is None:
+        return cfg
+    import copy
+
+    cfg2 = copy.copy(cfg)
+    video2 = copy.copy(cfg.video)
+    if model:
+        video2.model = model
+    if resolution:
+        video2.resolution = resolution
+    if duration is not None:
+        video2.duration = duration
+    cfg2.video = video2
+    return cfg2
+
+
+def _model_duration_range(cfg, model_name: str) -> tuple[int, int] | None:
+    """config.yaml → video.models 里该模型允许的秒数范围。"""
+    for m in getattr(cfg.video, "models", None) or []:
+        if isinstance(m, dict) and m.get("name") == model_name and m.get("duration"):
+            return int(m["duration"][0]), int(m["duration"][1])
+    return None
+
+
 async def generate_for_script(cfg, product_id: str, script_version: int | None = None,
-                              image_index: int | None = None) -> Path | None:
+                              image_index: int | None = None, model: str | None = None,
+                              resolution: str | None = None) -> Path | None:
     script_path = latest_script(cfg, product_id, script_version)
     script = json.loads(script_path.read_text(encoding="utf-8"))
     prompt = script["video_prompt"]
+
+    # 时长优先用脚本里 AI 定的 <seconds>；再按所选模型的允许范围钳制；
+    # 钳完写进 effective cfg —— 客户端 payload 从这里取值，才会真正提交出去
+    duration = int(script.get("duration") or cfg.video.duration)
+    target_model = model or cfg.video.model
+    rng = _model_duration_range(cfg, target_model)
+    if rng:
+        clamped = max(rng[0], min(rng[1], duration))
+        if clamped != duration:
+            print(f"[视频] 脚本时长 {duration}s 超出模型 {target_model} 的范围 "
+                  f"{rng[0]}–{rng[1]}s，按 {clamped}s 提交")
+            duration = clamped
+    cfg = _effective_cfg(cfg, model, resolution, duration)
 
     candidates = _reference_candidates(cfg, script)
     if image_index is not None:
@@ -112,7 +156,7 @@ async def generate_for_script(cfg, product_id: str, script_version: int | None =
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "api": cfg.video.api,
         "model": cfg.video.model,
-        "params": {"duration": cfg.video.duration, "ratio": cfg.video.ratio,
+        "params": {"duration": duration, "ratio": cfg.video.ratio,
                    "resolution": cfg.video.resolution, "generate_audio": cfg.video.generate_audio,
                    "image_role": cfg.video.image_role},
         "version": version,
