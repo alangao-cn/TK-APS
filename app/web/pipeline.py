@@ -52,6 +52,16 @@ async def run_scrape(request, job, params: dict | None = None) -> None:
         if proc.returncode != 0:
             job.log_line(f"子进程退出码 {proc.returncode}")
             raise RuntimeError(f"采集失败（退出码 {proc.returncode}），完整日志：{log_path}")
+
+    # 筛选结果体检：跑了但筛空 = 筛选参数大概率过严（最常见：达人区间），给明确警告
+    sel_files = sorted((cfg.root / cfg.storage.data_dir / "selection").glob("*/selected.json"))
+    if sel_files:
+        import json as _json
+        sel = _json.loads(sel_files[-1].read_text(encoding="utf-8"))
+        n_pass = len(sel.get("products") or [])
+        if n_pass == 0:
+            job.log_line("⚠ 采集完成但筛选后 0 条——筛选参数可能过严（热推榜头部商品达人普遍 400–1600，"
+                         "30–70 这类区间会整批筛空）。原始数据已保留，改参数后可离线重筛，不必重爬")
     job.log_line("采集 + 导出完成，去「选品」页查看结果")
 
 

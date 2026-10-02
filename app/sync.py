@@ -48,7 +48,16 @@ def _sync_batches(cfg, s: Session) -> int:
         data = _read_json(d / "selected.json")
         if not data:
             continue
-        batch = s.exec(select(models.Batch).where(models.Batch.ts == d.name)).first()
+        products = data.get("products") or []
+        # 筛选后 0 条的批次不进库（避免空卡片污染工作台）；已存在的空批次行一并清掉。
+        # 采集"跑了但筛空"的事实由任务日志承载（pipeline 里有明确警告）。
+        existing = s.exec(select(models.Batch).where(models.Batch.ts == d.name)).first()
+        if not products:
+            if existing:
+                s.delete(existing)
+                s.commit()
+            continue
+        batch = existing
         if not batch:
             batch = models.Batch(ts=d.name, created_at=data.get("generated_at", ""))
             s.add(batch)

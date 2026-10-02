@@ -100,28 +100,33 @@ function ScrapeButton() {
               key: 'filters',
               label: '筛选参数（采集后的导出阶段生效）',
               children: (
-                <Row gutter={12}>
-                  <Col span={12}>
-                    <Form.Item name="min_profit_cny" label="单件利润下限（元）">
-                      <InputNumber min={0} step={0.5} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="min_stock" label="库存下限">
-                      <InputNumber min={0} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="creators_min" label="带货达人下限">
-                      <InputNumber min={0} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name="creators_max" label="带货达人上限">
-                      <InputNumber min={0} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                </Row>
+                <>
+                  <Row gutter={12}>
+                    <Col span={12}>
+                      <Form.Item name="min_profit_cny" label="单件利润下限（元）">
+                        <InputNumber min={0} step={0.5} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="min_stock" label="库存下限">
+                        <InputNumber min={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="creators_min" label="带货达人下限">
+                        <InputNumber min={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="creators_max" label="带货达人上限">
+                        <InputNumber min={0} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                    注意：热推榜头部商品达人普遍 400–1600，达人区间过窄会把整批筛空（如 30–70 实测 0 命中）。
+                  </Typography.Text>
+                </>
               ),
             }]}
           />
